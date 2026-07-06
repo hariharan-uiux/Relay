@@ -13,6 +13,8 @@ function App(){
  const [theme,setTheme]=useState(() => localStorage.getItem('relay-theme') || 'system');
  const [autoAccept,setAutoAccept]=useState(() => localStorage.getItem('relay-auto-accept') === null ? true : localStorage.getItem('relay-auto-accept') === 'true');
  const [notifications,setNotifications]=useState(() => localStorage.getItem('relay-notifications') === null ? true : localStorage.getItem('relay-notifications') === 'true');
+ const [notificationsList,setNotificationsList]=useState([]);
+ const [showBellDropdown,setShowBellDropdown]=useState(false);
  const [systemDark,setSystemDark]=useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
  const [modal,setModal]=useState(null);
  const [toast,setToast]=useState('');
@@ -22,15 +24,132 @@ function App(){
  const [drag,setDrag]=useState(false);
  const [serverInfo,setServerInfo]=useState(null);
  const [showSidebar,setShowSidebar]=useState(false);
- const picker=useRef(),composer=useRef();
+ const [profileName,setProfileName]=useState(() => localStorage.getItem('relay-profile-name') || '');
+ const [profilePic,setProfilePic]=useState(() => localStorage.getItem('relay-profile-pic') || '');
+ const picker=useRef(),composer=useRef(),socketRef=useRef(),bellDropdownRef=useRef();
+ const notificationsRef=useRef(notifications);
+ const profileNameRef=useRef(profileName);
+
+ useEffect(()=>{notificationsRef.current=notifications},[notifications]);
+ useEffect(()=>{profileNameRef.current=profileName},[profileName]);
+
+ const updateProfile = (name, pic) => {
+  localStorage.setItem('relay-profile-name', name);
+  localStorage.setItem('relay-profile-pic', pic);
+  setProfileName(name);
+  setProfilePic(pic);
+  if (socketRef.current) {
+    socketRef.current.emit('update-profile', { name, pic });
+  }
+ };
+
+ const triggerNotification = (title, body, type) => {
+   const newNotif = {
+     id: Date.now() + Math.random().toString(36).substring(2, 9),
+     title,
+     body,
+     time: new Date(),
+     read: false,
+     type
+   };
+   setNotificationsList(prev => [newNotif, ...prev]);
+   if (notificationsRef.current) {
+     if ('Notification' in window && Notification.permission === 'granted') {
+       try {
+         new Notification(title, { body, icon: '/favicon.ico' });
+       } catch (e) {}
+     }
+     show(`${title}: ${body}`);
+   }
+ };
+
+ const formatTime = d => {
+   const diffMs = new Date() - new Date(d);
+   const diffMins = Math.floor(diffMs / 60000);
+   if (diffMins < 1) return 'Just now';
+   if (diffMins < 60) return `${diffMins}m ago`;
+   const diffHours = Math.floor(diffMins / 60);
+   if (diffHours < 24) return `${diffHours}h ago`;
+   return new Date(d).toLocaleDateString();
+ };
+
+ const getNotificationIcon = type => {
+   switch (type) {
+     case 'text': return <I.Clipboard size={14}/>;
+     case 'link': return <I.Link2 size={14}/>;
+     case 'note': return <I.NotebookPen size={14}/>;
+     case 'file': return <I.FileText size={14}/>;
+     case 'device': return <I.Smartphone size={14}/>;
+     default: return <I.Info size={14}/>;
+   }
+ };
+
+ useEffect(() => {
+   const handleOutsideClick = (e) => {
+     if (showBellDropdown && bellDropdownRef.current && !bellDropdownRef.current.contains(e.target)) {
+       const bellBtn = document.querySelector('.bell-btn');
+       if (bellBtn && !bellBtn.contains(e.target)) {
+         setShowBellDropdown(false);
+       }
+     }
+   };
+   document.addEventListener('mousedown', handleOutsideClick);
+   return () => document.removeEventListener('mousedown', handleOutsideClick);
+ }, [showBellDropdown]);
 
  useEffect(()=>{if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{})},[]);
  useEffect(()=>{fetch('/api/info').then(r=>r.json()).then(info=>setServerInfo(info)).catch(()=>{})},[]);
  useEffect(()=>{
   const socket=io();
-  socket.on('connect',()=>{setSocketId(socket.id)});
-  socket.on('history',items=>setTransfers(items));
-  socket.on('devices',list=>setDevices(list));
+  socketRef.current=socket;
+  socket.on('connect',()=>{
+   setSocketId(socket.id);
+   const storedName=localStorage.getItem('relay-profile-name') || '';
+   const storedPic=localStorage.getItem('relay-profile-pic') || '';
+   if(storedName || storedPic) {
+     socket.emit('update-profile', { name: storedName, pic: storedPic });
+   }
+  });
+  socket.on('history', items => {
+    setTransfers(prev => {
+      if (prev.length === 0) {
+        return items;
+      }
+      const newItems = items.filter(newItem => !prev.some(oldItem => oldItem.id === newItem.id));
+      newItems.forEach(item => {
+        if (item.device !== profileNameRef.current) {
+          let title = 'New Transfer';
+          let body = item.name || 'A new item was shared';
+          if (item.type === 'text') {
+            title = 'Clipboard Received';
+            body = item.content ? (item.content.length > 40 ? item.content.slice(0, 40) + '...' : item.content) : 'Text clipboard shared';
+          } else if (item.type === 'link') {
+            title = 'Link Received';
+            body = item.content;
+          } else if (item.type === 'note') {
+            title = 'Note Received';
+            body = item.name;
+          } else if (item.type === 'file') {
+            title = 'File Received';
+            body = `${item.name} (${formatSize(item.size)})`;
+          }
+          triggerNotification(title, body, item.type);
+        }
+      });
+      return items;
+    });
+  });
+  socket.on('devices', list => {
+    setDevices(prev => {
+      if (prev.length > 0) {
+        const newDevices = list.filter(d => d.id !== socket.id && !prev.some(p => p.id === d.id));
+        newDevices.forEach(d => {
+          triggerNotification('Device Connected', `${d.name} (${d.ip}) is now online`, 'device');
+        });
+      }
+      return list;
+    });
+  });
   return ()=>{socket.disconnect()};
  },[]);
  useEffect(()=>{const fn=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.querySelector('.search input')?.focus()}};addEventListener('keydown',fn);return()=>removeEventListener('keydown',fn)},[]);
@@ -44,7 +163,7 @@ function App(){
 
  const isDark = theme === 'dark' || (theme === 'system' && systemDark);
  const show=t=>{setToast(t);setTimeout(()=>setToast(''),2400)};
- const addFiles=async list=>{const form=new FormData();[...list].forEach(f=>form.append('files',f));show(`Uploading ${list.length} file${list.length>1?'s':''}...`);try{const items=await fetch('/api/upload',{method:'POST',body:form}).then(r=>r.json());setTransfers(x=>[...items,...x]);show(`${items.length} file${items.length>1?'s':''} stored on this PC`)}catch{show('Upload failed — check the server connection')}};
+ const addFiles=async list=>{const form=new FormData();[...list].forEach(f=>form.append('files',f));form.append('senderName',profileName);show(`Uploading ${list.length} file${list.length>1?'s':''}...`);try{const items=await fetch('/api/upload',{method:'POST',body:form}).then(r=>r.json());setTransfers(x=>[...items,...x]);show(`${items.length} file${items.length>1?'s':''} stored on this PC`)}catch{show('Upload failed — check the server connection')}};
  const clipboardCount=useMemo(()=>transfers.filter(x=>x.type==='text').length,[transfers]);
  const filtered=useMemo(()=>{
   const searchFiltered = transfers.filter(x=>{
@@ -82,7 +201,53 @@ function App(){
    <header>
     <button className="mobile-logo" onClick={()=>setShowSidebar(true)} aria-label="Open menu"><Logo isMenu/></button>
     <div className="search"><I.Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search everything..."/><kbd>⌘ K</kbd></div>
-    <div className="head-actions"><button onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button><button title="Pair a device" onClick={()=>setModal('pair')}><I.QrCode size={18}/></button><button className="bell"><I.Bell size={18}/><i/></button><div className="avatar">H</div></div>
+     <div className="head-actions">
+       <button onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button>
+       <button title="Pair a device" onClick={()=>setModal('pair')}><I.QrCode size={18}/></button>
+       <div className="bell-container">
+         <button className="bell-btn" onClick={() => {
+           setShowBellDropdown(!showBellDropdown);
+           setNotificationsList(prev => prev.map(n => ({ ...n, read: true })));
+         }} aria-label="Notifications">
+           <I.Bell size={18}/>
+           {notificationsList.some(n => !n.read) && <span className="bell-badge"/>}
+         </button>
+         {showBellDropdown && (
+           <div className="bell-dropdown" ref={bellDropdownRef}>
+             <div className="bell-dropdown-header">
+               <h3>Notifications</h3>
+               {notificationsList.length > 0 && (
+                 <button onClick={() => setNotificationsList([])} className="clear-all-btn">
+                   Clear all
+                 </button>
+               )}
+             </div>
+             <div className="bell-dropdown-content">
+               {notificationsList.length > 0 ? (
+                 notificationsList.map(n => (
+                   <div key={n.id} className="notification-item">
+                     <span className={`notification-icon ${n.type || 'info'}`}>
+                       {getNotificationIcon(n.type)}
+                     </span>
+                     <div className="notification-text">
+                       <b>{n.title}</b>
+                       <p>{n.body}</p>
+                       <small>{formatTime(n.time)}</small>
+                     </div>
+                   </div>
+                 ))
+               ) : (
+                 <div className="bell-empty">
+                   <I.BellOff size={22} />
+                   <p>No new notifications</p>
+                 </div>
+               )}
+             </div>
+           </div>
+         )}
+       </div>
+       <button className="avatar" onClick={()=>setModal('settings')} aria-label="Profile Settings">{profilePic ? <img src={profilePic} alt={profileName || 'You'}/> : <span>{(profileName || 'You').charAt(0).toUpperCase()}</span>}</button>
+     </div>
    </header>
    <div className="content">
     <section className="welcome"><div><p className="eyebrow">LOCAL NETWORK · SECURE</p><h1>{active==='Home'?(serverInfo?`Welcome to ${serverInfo.name}`:'Welcome back'):active}</h1><p>{active==='Home'?'Everything is connected and ready to share.':`Your ${active.toLowerCase()} stay private on this network.`}</p></div></section>
@@ -105,7 +270,9 @@ function App(){
      {devices.length?(<div className="device-grid">{devices.map(d=>{
       const isMe=d.id===socketId;
       const Icon=I[d.icon]||I.Smartphone;
-      return <button className="device" key={d.id} onClick={()=>show(isMe?'This is your current device':`${d.name} (${d.ip}) is connected`)}><div className={`device-icon ${d.color}`}><Icon size={23}/><i className="on"/></div><div className="device-text"><b>{d.name} {isMe&&'(This device)'}</b><small>{isMe?'Active':d.ip}</small></div><span className="signal"><I.Signal size={17}/></span>{!isMe&&<span className="chev">›</span>}</button>;
+      const displayName=isMe?(profileName||d.name):d.name;
+      const displayPic=isMe?profilePic:d.pic;
+      return <button className="device" key={d.id} onClick={()=>show(isMe?'This is your current device':`${displayName} (${d.ip}) is connected`)}><div className={`device-icon ${displayPic ? 'custom-avatar' : d.color}`}>{displayPic ? <img src={displayPic} alt={displayName}/> : <Icon size={23}/>}<i className="on"/></div><div className="device-text"><b>{displayName} {isMe&&'(This device)'}</b><small>{isMe?'Active':d.ip}</small></div><span className="signal"><I.Signal size={17}/></span>{!isMe&&<span className="chev">›</span>}</button>;
      })}</div>):(<div className="empty"><span><I.WifiOff size={28}/></span><h3>No other devices connected</h3><p>Scan the QR code or open the link on another device to start sharing.</p></div>)}
     </div>
    </section>
@@ -115,51 +282,100 @@ function App(){
  function Library(){return <section className="library"><div className="library-head"><div><h2>{active}</h2><p>Search, sort and manage everything stored locally.</p></div><button className="primary" onClick={()=>(active==='Files'||active==='Media')?picker.current.click():setModal(active==='Clipboard'?'clipboard':active==='Links'?'link':'note')}><I.Plus size={18}/> Add new</button></div><div className="filters"><button className="selected">All</button><button>Favorites</button><button>From my devices</button><span/><button><I.SlidersHorizontal size={16}/> Filter</button></div><TransferList list={filtered}/></section>}
  function TransferList({list}){return <div className="transfer-list">{list.length?list.map(x=><div className="transfer" key={x.id}><span className={`file-icon ${x.color||'blue'}`}><FileIcon kind={x.kind||x.type}/></span><div className="file-name"><b>{x.name}</b><small>{x.meta||`${x.device||'Local device'} · ${x.size?formatSize(x.size):x.type||'Share'}`}</small></div><span className="complete"><I.Check size={13}/> {x.status}</span><time>{x.time||new Date(x.timestamp).toLocaleDateString()}</time>{x.path?<a className="download" href={`/api/download/${x.id}`} aria-label="Download"><I.Download size={18}/></a>:<button aria-label="More"><I.MoreHorizontal size={19}/></button>}</div>):<Empty/>}</div>}
  function Empty(){const X=active==='Clipboard'?I.Clipboard:active==='Links'?I.Link2:active==='Notes'?I.NotebookPen:I.Images;return <div className="empty"><span><X size={28}/></span><h3>No {active.toLowerCase()} yet</h3><p>Anything you share will appear here and stay on this device.</p></div>}
- function Modal(){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&setModal(null)}><div className="modal"><button className="close" onClick={()=>setModal(null)}><I.X size={19}/></button>{modal==='pair'?<Pair/>:modal==='settings'?<Settings/>:<Composer/>}</div></div>}
+ function Modal(){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&setModal(null)}><div className="modal"><button className="close" onClick={()=>setModal(null)}><I.X size={19}/></button>{modal==='pair'?<Pair/>:modal==='settings'?<Settings profileName={profileName} profilePic={profilePic} updateProfile={updateProfile} theme={theme} setTheme={setTheme} autoAccept={autoAccept} setAutoAccept={setAutoAccept} notifications={notifications} setNotifications={setNotifications} showToast={show}/>:<Composer/>}</div></div>}
  function Pair(){return <><span className="modal-icon"><I.QrCode/></span><h2>Connect your device</h2><p>Keep both devices on the same Wi-Fi, then scan this QR code with your phone or tablet camera.</p>{serverInfo?<img className="real-qr" src={serverInfo.qr} alt={`QR code for ${serverInfo.url}`}/>:<div className="qr"/>}<div className="server-url">{serverInfo?.url||'Starting local server…'}</div><small className="secure"><I.Lock size={13}/> Files stay on this Windows PC · Local network only</small></>}
- function Settings(){return <>
-      <span className="modal-icon"><I.Settings/></span>
-      <h2>Settings</h2>
-      <p>Control how Relay works on this device.</p>
-      <label className="setting">
-        <span>
-          <b>Theme appearance</b>
-          <small>Choose how Relay looks on your device</small>
-        </span>
-        <select value={theme} onChange={e => {
-          const next = e.target.value;
-          setTheme(next);
-          localStorage.setItem('relay-theme', next);
-        }}>
-          <option value="system">System (Device Theme)</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-      </label>
-      <label className="setting">
-        <span>
-          <b>Auto-accept trusted devices</b>
-          <small>Skip approval for known devices</small>
-        </span>
-        <input type="checkbox" checked={autoAccept} onChange={e => {
-          const next = e.target.checked;
-          setAutoAccept(next);
-          localStorage.setItem('relay-auto-accept', String(next));
-        }}/>
-      </label>
-      <label className="setting">
-        <span>
-          <b>Notifications</b>
-          <small>Transfer and connection alerts</small>
-        </span>
+ function Composer(){let title=modal==='clipboard'?'Paste text':modal==='link'?'Share a link':'New note';const send=async()=>{const content=composer.current?.value||'';if(!content.trim())return;const item=await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:modal==='clipboard'?'text':modal,content,senderName:profileName})}).then(r=>r.json());setTransfers(x=>[item,...x]);setModal(null);show(`${title} shared successfully`)};return <><span className="modal-icon">{modal==='clipboard'?<I.Clipboard/>:modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<textarea ref={composer} className="composer" rows="5" placeholder="Type or paste here..." autoFocus/>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
+ }
+
+function Settings({ profileName, profilePic, updateProfile, theme, setTheme, autoAccept, setAutoAccept, notifications, setNotifications, showToast }) {
+  const profilePicInput = useRef(null);
+  const handlePicChange = e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      updateProfile(profileName, reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return <>
+     <span className="modal-icon"><I.User/></span>
+     <h2>Profile & Settings</h2>
+     <p>Customize your profile and preferences.</p>
+     
+     <div className="profile-edit">
+       <div className="avatar-edit">
+         <div className="avatar-preview">
+           {profilePic ? <img src={profilePic} alt="Preview"/> : <span>{(profileName || 'You').charAt(0).toUpperCase()}</span>}
+         </div>
+         <div className="avatar-edit-actions">
+           <button className="primary" onClick={()=>profilePicInput.current?.click()}><I.Camera size={14}/> Change Photo</button>
+           {profilePic && <button className="danger" onClick={()=>updateProfile(profileName, '')}><I.Trash size={14}/> Remove</button>}
+           <input type="file" ref={profilePicInput} hidden accept="image/*" onChange={handlePicChange}/>
+         </div>
+       </div>
+       <label className="setting-input">
+         <span><b>Display name</b></span>
+         <input type="text" value={profileName} onChange={e=>updateProfile(e.target.value, profilePic)} placeholder="Enter your name..."/>
+       </label>
+     </div>
+
+     <label className="setting">
+       <span>
+         <b>Theme appearance</b>
+         <small>Choose how Relay looks on your device</small>
+       </span>
+       <select value={theme} onChange={e => {
+         const next = e.target.value;
+         setTheme(next);
+         localStorage.setItem('relay-theme', next);
+       }}>
+         <option value="system">System (Device Theme)</option>
+         <option value="light">Light</option>
+         <option value="dark">Dark</option>
+       </select>
+     </label>
+     <label className="setting">
+       <span>
+         <b>Auto-accept trusted devices</b>
+         <small>Skip approval for known devices</small>
+       </span>
+       <input type="checkbox" checked={autoAccept} onChange={e => {
+         const next = e.target.checked;
+         setAutoAccept(next);
+         localStorage.setItem('relay-auto-accept', String(next));
+       }}/>
+     </label>
+     <label className="setting">
+       <span>
+         <b>Notifications</b>
+         <small>Transfer and connection alerts</small>
+       </span>
         <input type="checkbox" checked={notifications} onChange={e => {
           const next = e.target.checked;
+          if (next) {
+            if (!('Notification' in window)) {
+              showToast('Notifications not supported by this browser');
+              return;
+            }
+            if (Notification.permission === 'denied') {
+              showToast('Notifications are blocked by browser settings');
+            } else {
+              Notification.requestPermission().then(perm => {
+                if (perm === 'granted') {
+                  try {
+                    new Notification('Relay', { body: 'Notifications enabled!' });
+                  } catch (err) {}
+                }
+              });
+            }
+          }
           setNotifications(next);
           localStorage.setItem('relay-notifications', String(next));
         }}/>
       </label>
-    </>}
- function Composer(){let title=modal==='clipboard'?'Paste text':modal==='link'?'Share a link':'New note';const send=async()=>{const content=composer.current?.value||'';if(!content.trim())return;const item=await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:modal==='clipboard'?'text':modal,content})}).then(r=>r.json());setTransfers(x=>[item,...x]);setModal(null);show(`${title} shared successfully`)};return <><span className="modal-icon">{modal==='clipboard'?<I.Clipboard/>:modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<textarea ref={composer} className="composer" rows="5" placeholder="Type or paste here..." autoFocus/>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
- }
+    </>;
+}
 function formatSize(n){if(n<1e6)return Math.round(n/1e3)+' KB';if(n<1e9)return (n/1e6).toFixed(1)+' MB';return (n/1e9).toFixed(1)+' GB'}
 createRoot(document.getElementById('root')).render(<App/>);

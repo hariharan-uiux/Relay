@@ -35,13 +35,14 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
   });
   app.get('/api/history', (_, res) => res.json(history));
   app.post('/api/upload', upload.array('files', 100), (req, res) => {
-    const items = (req.files || []).map(f => ({ id: `${Date.now()}-${Math.random()}`, name: f.originalname, size: f.size, mime: f.mimetype, type: 'file', timestamp: new Date().toISOString(), device: req.ip, path: f.filename, status: 'Complete' }));
+    const senderName = req.body.senderName || '';
+    const items = (req.files || []).map(f => ({ id: `${Date.now()}-${Math.random()}`, name: f.originalname, size: f.size, mime: f.mimetype, type: 'file', timestamp: new Date().toISOString(), device: senderName || req.ip, path: f.filename, status: 'Complete' }));
     history.unshift(...items); save(); io.emit('history', history); res.json(items);
   });
   app.post('/api/share', (req, res) => {
-    const { type = 'text', content = '' } = req.body || {};
+    const { type = 'text', content = '', senderName = '' } = req.body || {};
     if (!content.trim()) return res.status(400).json({ error: 'Content is required' });
-    const item = { id: `${Date.now()}`, name: type === 'link' ? content : content.slice(0, 60), content, type, timestamp: new Date().toISOString(), device: req.ip, status: 'Complete' };
+    const item = { id: `${Date.now()}`, name: type === 'link' ? content : content.slice(0, 60), content, type, timestamp: new Date().toISOString(), device: senderName || req.ip, status: 'Complete' };
     history.unshift(item); save(); io.emit('history', history); res.json(item);
   });
   app.get('/api/download/:id', (req, res) => {
@@ -74,12 +75,21 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
       ip: cleanIp,
       icon: device.icon,
       color: device.color,
-      online: true
+      online: true,
+      pic: null
     };
     activeDevices.set(socket.id, deviceInfo);
     io.emit('devices', Array.from(activeDevices.values()));
     socket.emit('history', history);
     io.emit('device-count', io.engine.clientsCount);
+    socket.on('update-profile', data => {
+      const dev = activeDevices.get(socket.id);
+      if (dev && data) {
+        if (data.name) dev.name = data.name;
+        if (data.hasOwnProperty('pic')) dev.pic = data.pic;
+        io.emit('devices', Array.from(activeDevices.values()));
+      }
+    });
     socket.on('disconnect', () => {
       activeDevices.delete(socket.id);
       io.emit('devices', Array.from(activeDevices.values()));
