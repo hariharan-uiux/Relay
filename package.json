@@ -1,0 +1,31 @@
+{
+  "name": "relay-local-share",
+  "private": true,
+  "description": "Private local file sharing between devices",
+  "author": "Relay",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"vite --host 0.0.0.0\"",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "server": "node server.cjs",
+    "start": "node server.cjs"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "express": "latest",
+    "lucide-react": "latest",
+    "multer": "latest",
+    "qrcode": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "socket.io": "latest",
+    "socket.io-client": "^4.8.3",
+    "typescript": "latest",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Relay — Local Share",
+  "short_name": "Relay",
+  "description": "Your private bridge between devices.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f3ef",
+  "theme_color": "#171714",
+  "icons": []
+}
