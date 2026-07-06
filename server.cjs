@@ -50,7 +50,42 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
     res.download(path.join(storageDir, item.path), item.name);
   });
   app.delete('/api/history/:id', (req, res) => { history = history.filter(x => x.id !== req.params.id); save(); io.emit('history', history); res.sendStatus(204); });
-  io.on('connection', socket => { socket.emit('history', history); io.emit('device-count', io.engine.clientsCount); socket.on('disconnect', () => io.emit('device-count', io.engine.clientsCount)); });
+  function getDeviceType(ua) {
+    if (!ua) return { name: 'Unknown Device', icon: 'Smartphone', color: 'blue' };
+    const lower = ua.toLowerCase();
+    if (lower.includes('iphone')) return { name: 'iPhone', icon: 'Smartphone', color: 'blue' };
+    if (lower.includes('ipad')) return { name: 'iPad', icon: 'Tablet', color: 'rose' };
+    if (lower.includes('android')) return { name: 'Android Device', icon: 'Smartphone', color: 'mint' };
+    if (lower.includes('macintosh') || lower.includes('mac os')) return { name: 'MacBook', icon: 'Laptop', color: 'violet' };
+    if (lower.includes('windows')) return { name: 'Windows PC', icon: 'Monitor', color: 'amber' };
+    if (lower.includes('linux')) return { name: 'Linux PC', icon: 'Monitor', color: 'coral' };
+    return { name: 'Web Client', icon: 'Monitor', color: 'blue' };
+  }
+  const activeDevices = new Map();
+
+  io.on('connection', socket => {
+    const ua = socket.handshake.headers['user-agent'] || '';
+    const ip = socket.handshake.address || socket.conn.remoteAddress || '127.0.0.1';
+    const cleanIp = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+    const device = getDeviceType(ua);
+    const deviceInfo = {
+      id: socket.id,
+      name: device.name,
+      ip: cleanIp,
+      icon: device.icon,
+      color: device.color,
+      online: true
+    };
+    activeDevices.set(socket.id, deviceInfo);
+    io.emit('devices', Array.from(activeDevices.values()));
+    socket.emit('history', history);
+    io.emit('device-count', io.engine.clientsCount);
+    socket.on('disconnect', () => {
+      activeDevices.delete(socket.id);
+      io.emit('devices', Array.from(activeDevices.values()));
+      io.emit('device-count', io.engine.clientsCount);
+    });
+  });
   app.use(express.static(path.join(root, 'dist')));
   app.use((req, res, next) => req.method === 'GET' ? res.sendFile(path.join(root, 'dist', 'index.html')) : next());
   return new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '0.0.0.0', () => resolve({ server, url: `http://${lanAddress()}:${port}`, localUrl: `http://127.0.0.1:${port}` })); });
