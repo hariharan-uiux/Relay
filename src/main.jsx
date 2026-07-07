@@ -4,7 +4,15 @@ import * as I from 'lucide-react';
 import {io} from 'socket.io-client';
 import './styles.css';
 
-const nav=[['Home',I.Home],['Files',I.Files],['Clipboard',I.Clipboard],['Links',I.Link2],['Notes',I.NotebookPen],['Media',I.Images],['History',I.History]];
+const nav=[['Home',I.Home],['Settings',I.Settings],['Help',I.CircleHelp]];
+const filterTabs = [
+  { id: 'all', label: 'All', icon: I.Layers },
+  { id: 'files', label: 'Files', icon: I.Files },
+  { id: 'clipboard', label: 'Clipboard', icon: I.Clipboard },
+  { id: 'links', label: 'Links', icon: I.Link2 },
+  { id: 'notes', label: 'Notes', icon: I.NotebookPen },
+  { id: 'media', label: 'Media', icon: I.Images }
+];
 function Logo({isMenu}){const Icon=isMenu?I.Menu:I.Wifi;return <div className="logo"><span><Icon size={18}/></span><b>Relay</b></div>}
 function FileIcon({kind}){const X=kind==='image'?I.Image:kind==='pdf'?I.FileText:kind==='text'?I.AlignLeft:I.Archive;return <X size={20}/>}
 const isImage = x => {
@@ -22,6 +30,8 @@ const isVideo = x => {
 
 function App(){
  const [active,setActive]=useState('Home');
+ const [homeTab,setHomeTab]=useState('Dashboard');
+ const [contentFilter,setContentFilter]=useState('all');
  const [query,setQuery]=useState('');
  const [viewMode,setViewMode]=useState(() => localStorage.getItem('relay-view-mode') || 'grid');
  const [theme,setTheme]=useState(() => localStorage.getItem('relay-theme') || 'system');
@@ -39,7 +49,9 @@ function App(){
  const [serverInfo,setServerInfo]=useState(null);
  const [profileName,setProfileName]=useState(() => localStorage.getItem('relay-profile-name') || '');
  const [profilePic,setProfilePic]=useState(() => localStorage.getItem('relay-profile-pic') || '');
- const picker=useRef(),composer=useRef(),socketRef=useRef(),bellDropdownRef=useRef();
+ const [showHomeFilter,setShowHomeFilter]=useState(false);
+ const [showLibraryFilter,setShowLibraryFilter]=useState(false);
+ const picker=useRef(),composer=useRef(),socketRef=useRef(),bellDropdownRef=useRef(),homeFilterRef=useRef(),libraryFilterRef=useRef();
  const notificationsRef=useRef(notifications);
  const profileNameRef=useRef(profileName);
 
@@ -97,221 +109,383 @@ function App(){
    }
  };
 
- useEffect(() => {
-   const handleOutsideClick = (e) => {
-     if (showBellDropdown && bellDropdownRef.current && !bellDropdownRef.current.contains(e.target)) {
-       const bellBtn = document.querySelector('.bell-btn');
-       if (bellBtn && !bellBtn.contains(e.target)) {
-         setShowBellDropdown(false);
-       }
-     }
-   };
-   document.addEventListener('mousedown', handleOutsideClick);
-   return () => document.removeEventListener('mousedown', handleOutsideClick);
- }, [showBellDropdown]);
-
- useEffect(()=>{if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{})},[]);
- useEffect(()=>{fetch('/api/info').then(r=>r.json()).then(info=>setServerInfo(info)).catch(()=>{})},[]);
- useEffect(()=>{
-  const socket=io();
-  socketRef.current=socket;
-  socket.on('connect',()=>{
-   setSocketId(socket.id);
-   const storedName=localStorage.getItem('relay-profile-name') || '';
-   const storedPic=localStorage.getItem('relay-profile-pic') || '';
-   if(storedName || storedPic) {
-     socket.emit('update-profile', { name: storedName, pic: storedPic });
-   }
-  });
-  socket.on('history', items => {
-    setTransfers(prev => {
-      if (prev.length === 0) {
-        return items;
-      }
-      const newItems = items.filter(newItem => !prev.some(oldItem => oldItem.id === newItem.id));
-      newItems.forEach(item => {
-        if (item.device !== profileNameRef.current) {
-          let title = 'New Transfer';
-          let body = item.name || 'A new item was shared';
-          if (item.type === 'text') {
-            title = 'Clipboard Received';
-            body = item.content ? (item.content.length > 40 ? item.content.slice(0, 40) + '...' : item.content) : 'Text clipboard shared';
-          } else if (item.type === 'link') {
-            title = 'Link Received';
-            body = item.content;
-          } else if (item.type === 'note') {
-            title = 'Note Received';
-            body = item.name;
-          } else if (item.type === 'file') {
-            title = 'File Received';
-            body = `${item.name} (${formatSize(item.size)})`;
-          }
-          triggerNotification(title, body, item.type);
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (showBellDropdown && bellDropdownRef.current && !bellDropdownRef.current.contains(e.target)) {
+        const bellBtn = document.querySelector('.bell-btn');
+        if (bellBtn && !bellBtn.contains(e.target)) {
+          setShowBellDropdown(false);
         }
-      });
-      return items;
-    });
-  });
-  socket.on('devices', list => {
-    setDevices(prev => {
-      if (prev.length > 0) {
-        const newDevices = list.filter(d => d.id !== socket.id && !prev.some(p => p.id === d.id));
-        newDevices.forEach(d => {
-          triggerNotification('Device Connected', `${d.name} (${d.ip}) is now online`, 'device');
-        });
       }
-      return list;
+      if (showHomeFilter && homeFilterRef.current && !homeFilterRef.current.contains(e.target)) {
+        setShowHomeFilter(false);
+      }
+      if (showLibraryFilter && libraryFilterRef.current && !libraryFilterRef.current.contains(e.target)) {
+        setShowLibraryFilter(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showBellDropdown, showHomeFilter, showLibraryFilter]);
+
+   useEffect(()=>{if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{})},[]);
+   useEffect(()=>{fetch(`/api/info?clientPort=${window.location.port}`).then(r=>r.json()).then(info=>setServerInfo(info)).catch(()=>{})},[]);
+   useEffect(()=>{
+    const socket=io();
+    socketRef.current=socket;
+    socket.on('connect',()=>{
+     setSocketId(socket.id);
+     const storedName=localStorage.getItem('relay-profile-name') || '';
+     const storedPic=localStorage.getItem('relay-profile-pic') || '';
+     if(storedName || storedPic) {
+       socket.emit('update-profile', { name: storedName, pic: storedPic });
+     }
     });
-  });
-  return ()=>{socket.disconnect()};
- },[]);
- useEffect(()=>{const fn=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.querySelector('.search input')?.focus()}};addEventListener('keydown',fn);return()=>removeEventListener('keydown',fn)},[]);
- useEffect(() => {
-  if (theme !== 'system') return;
-  const media = window.matchMedia('(prefers-color-scheme: dark)');
-  const listener = e => setSystemDark(e.matches);
-  media.addEventListener('change', listener);
-  return () => media.removeEventListener('change', listener);
- }, [theme]);
+    socket.on('history', items => {
+      setTransfers(prev => {
+        if (prev.length === 0) {
+          return items;
+        }
+        const newItems = items.filter(newItem => !prev.some(oldItem => oldItem.id === newItem.id));
+        newItems.forEach(item => {
+          if (item.device !== profileNameRef.current) {
+            let title = 'New Transfer';
+            let body = item.name || 'A new item was shared';
+            if (item.type === 'text') {
+              title = 'Clipboard Received';
+              body = item.content ? (item.content.length > 40 ? item.content.slice(0, 40) + '...' : item.content) : 'Text clipboard shared';
+            } else if (item.type === 'link') {
+              title = 'Link Received';
+              body = item.content;
+            } else if (item.type === 'note') {
+              title = 'Note Received';
+              body = item.name;
+            } else if (item.type === 'file') {
+              title = 'File Received';
+              body = `${item.name} (${formatSize(item.size)})`;
+            }
+            triggerNotification(title, body, item.type);
+          }
+        });
+        return items;
+      });
+    });
+    socket.on('devices', list => {
+      setDevices(prev => {
+        if (prev.length > 0) {
+          const newDevices = list.filter(d => d.id !== socket.id && !prev.some(p => p.id === d.id));
+          newDevices.forEach(d => {
+            triggerNotification('Device Connected', `${d.name} (${d.ip}) is now online`, 'device');
+          });
+        }
+        return list;
+      });
+    });
+    return ()=>{socket.disconnect()};
+   },[]);
+   useEffect(()=>{const fn=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.querySelector('.search input')?.focus()}};addEventListener('keydown',fn);return()=>removeEventListener('keydown',fn)},[]);
+   useEffect(() => {
+    if (theme !== 'system') return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const listener = e => setSystemDark(e.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+   }, [theme]);
 
- const isDark = theme === 'dark' || (theme === 'system' && systemDark);
- const show=t=>{setToast(t);setTimeout(()=>setToast(''),2400)};
- const addFiles=async list=>{const form=new FormData();[...list].forEach(f=>form.append('files',f));form.append('senderName',profileName);show(`Uploading ${list.length} file${list.length>1?'s':''}...`);try{const items=await fetch('/api/upload',{method:'POST',body:form}).then(r=>r.json());setTransfers(x=>[...items,...x]);show(`${items.length} file${items.length>1?'s':''} stored on this PC`)}catch{show('Upload failed — check the server connection')}};
- const clipboardCount=useMemo(()=>transfers.filter(x=>x.type==='text').length,[transfers]);
- const filtered=useMemo(()=>{
-  const searchFiltered = transfers.filter(x=>{
-    const matchName = x.name?.toLowerCase().includes(query.toLowerCase());
-    const matchContent = x.content?.toLowerCase().includes(query.toLowerCase());
-    return matchName || matchContent;
-  });
-  if(active==='History'||active==='Home')return searchFiltered;
-  if(active==='Files')return searchFiltered.filter(x=>x.type==='file'||(!x.type&&x.path));
-  if(active==='Clipboard')return searchFiltered.filter(x=>x.type==='text');
-  if(active==='Links')return searchFiltered.filter(x=>x.type==='link');
-  if(active==='Notes')return searchFiltered.filter(x=>x.type==='note');
-  if(active==='Media')return searchFiltered.filter(x=>{
-    const type=x.kind||x.type||'';
-    const mime=x.mime||'';
-    return type==='image'||type==='video'||mime.startsWith('image/')||mime.startsWith('video/')||(x.name&&/\.(png|jpe?g|gif|webp|heic|mp4|mov|webm)$/i.test(x.name));
-  });
-  return [];
- },[transfers,query,active]);
+   const isDark = theme === 'dark' || (theme === 'system' && systemDark);
+   const show=t=>{setToast(t);setTimeout(()=>setToast(''),2400)};
+   const addFiles=async list=>{const form=new FormData();[...list].forEach(f=>form.append('files',f));form.append('senderName',profileName);show(`Uploading ${list.length} file${list.length>1?'s':''}...`);try{const items=await fetch('/api/upload',{method:'POST',body:form}).then(r=>r.json());setTransfers(x=>[...items,...x]);show(`${items.length} file${items.length>1?'s':''} stored on this PC`)}catch{show('Upload failed — check the server connection')}};
+   const clipboardCount=useMemo(()=>transfers.filter(x=>x.type==='text').length,[transfers]);
+   const filtered=useMemo(()=>{
+    const searchFiltered = transfers.filter(x=>{
+      const matchName = x.name?.toLowerCase().includes(query.toLowerCase());
+      const matchContent = x.content?.toLowerCase().includes(query.toLowerCase());
+      return matchName || matchContent;
+    });
+    if(contentFilter==='all')return searchFiltered;
+    if(contentFilter==='files')return searchFiltered.filter(x=>x.type==='file'||(!x.type&&x.path));
+    if(contentFilter==='clipboard')return searchFiltered.filter(x=>x.type==='text');
+    if(contentFilter==='links')return searchFiltered.filter(x=>x.type==='link');
+    if(contentFilter==='notes')return searchFiltered.filter(x=>x.type==='note');
+    if(contentFilter==='media')return searchFiltered.filter(x=>{
+      const type=x.kind||x.type||'';
+      const mime=x.mime||'';
+      return type==='image'||type==='video'||mime.startsWith('image/')||mime.startsWith('video/')||(x.name&&/\.(png|jpe?g|gif|webp|heic|mp4|mov|webm)$/i.test(x.name));
+    });
+    return [];
+   },[transfers,query,contentFilter]);
 
- return <div className={isDark ? 'app dark' : 'app'}>
-  <main>
-   <header>
-    <div className="header-logo"><Logo/></div>
-    <div className="search"><I.Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search everything..."/><kbd>⌘ K</kbd></div>
-     <div className="head-actions">
-       <button className="theme-btn" onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button>
-       <button className="header-pair-btn" title="Pair a device" onClick={()=>setModal('pair')}><I.QrCode size={18}/></button>
-       <div className="bell-container">
-         <button className="bell-btn" onClick={() => {
-           setShowBellDropdown(!showBellDropdown);
-           setNotificationsList(prev => prev.map(n => ({ ...n, read: true })));
-         }} aria-label="Notifications">
-           <I.Bell size={18}/>
-           {notificationsList.some(n => !n.read) && <span className="bell-badge"/>}
-         </button>
-         {showBellDropdown && (
-           <div className="bell-dropdown" ref={bellDropdownRef}>
-             <div className="bell-dropdown-header">
-               <h3>Notifications</h3>
-               {notificationsList.length > 0 && (
-                 <button onClick={() => setNotificationsList([])} className="clear-all-btn">
-                   Clear all
-                 </button>
-               )}
+  return <div className={isDark ? 'app dark' : 'app'}>
+   <main>
+    <header>
+     <div className="header-logo"><Logo/></div>
+     <div className="search"><I.Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search everything..."/><kbd>⌘ K</kbd></div>
+      <div className="head-actions">
+        <button className="theme-btn" onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button>
+        <button className="header-pair-btn" title="Pair a device" onClick={()=>setActive('Help')}><I.QrCode size={18}/></button>
+        <div className="bell-container">
+          <button className="bell-btn" onClick={() => {
+            setShowBellDropdown(!showBellDropdown);
+            setNotificationsList(prev => prev.map(n => ({ ...n, read: true })));
+          }} aria-label="Notifications">
+            <I.Bell size={18}/>
+            {notificationsList.some(n => !n.read) && <span className="bell-badge"/>}
+          </button>
+          {showBellDropdown && (
+            <div className="bell-dropdown" ref={bellDropdownRef}>
+              <div className="bell-dropdown-header">
+                <h3>Notifications</h3>
+                {notificationsList.length > 0 && (
+                  <button onClick={() => setNotificationsList([])} className="clear-all-btn">
+                    Clear all
+                  </button>
+                )}
+              </div>
+              <div className="bell-dropdown-content">
+                {notificationsList.length > 0 ? (
+                  notificationsList.map(n => (
+                    <div key={n.id} className="notification-item">
+                      <span className={`notification-icon ${n.type || 'info'}`}>
+                        {getNotificationIcon(n.type)}
+                      </span>
+                      <div className="notification-text">
+                        <b>{n.title}</b>
+                        <p>{n.body}</p>
+                        <small>{formatTime(n.time)}</small>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="bell-empty">
+                    <I.BellOff size={22} />
+                    <p>No new notifications</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <button className="avatar" onClick={()=>setActive('Settings')} aria-label="Profile Settings">{profilePic ? <img src={profilePic} alt={profileName || 'You'}/> : <span>{(profileName || 'You').charAt(0).toUpperCase()}</span>}</button>
+      </div>
+    </header>
+    <div className="content">
+     {active === 'Home' ? (
+       <div className="home-layout">
+         <div className="home-main">
+           <section className="welcome">
+             <div>
+               <p className="eyebrow">LOCAL NETWORK · SECURE</p>
+               <h1>
+                 {homeTab === 'Dashboard' 
+                   ? (serverInfo ? `Welcome to ${serverInfo.name}` : 'Welcome back') 
+                   : 'History'}
+               </h1>
+               <p>
+                 {homeTab === 'Dashboard' 
+                   ? 'Everything is connected and ready to share.' 
+                   : 'Your history stays private on this network.'}
+               </p>
              </div>
-             <div className="bell-dropdown-content">
-               {notificationsList.length > 0 ? (
-                 notificationsList.map(n => (
-                   <div key={n.id} className="notification-item">
-                     <span className={`notification-icon ${n.type || 'info'}`}>
-                       {getNotificationIcon(n.type)}
-                     </span>
-                     <div className="notification-text">
-                       <b>{n.title}</b>
-                       <p>{n.body}</p>
-                       <small>{formatTime(n.time)}</small>
-                     </div>
-                   </div>
-                 ))
-               ) : (
-                 <div className="bell-empty">
-                   <I.BellOff size={22} />
-                   <p>No new notifications</p>
-                 </div>
-               )}
+           </section>
+           <section className="share-card" onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);addFiles(e.dataTransfer.files)}} data-drag={drag}>
+             <div className="share-copy"><span className="send-icon"><I.Send size={24}/></span><div><h2>Send something</h2><p>Drop files here or choose what you want to share.</p></div></div>
+             <div className="share-actions">
+               <button className="primary" onClick={()=>picker.current.click()}><I.Plus size={18}/> Choose files</button>
+               <button onClick={()=>setModal('clipboard')}><I.Clipboard size={18}/> Paste text</button>
+               <button onClick={()=>setModal('link')}><I.Link2 size={18}/> Share link</button>
+               <button onClick={()=>setModal('note')}><I.NotebookPen size={18}/> New note</button>
+             </div>
+           </section>
+           <div className="home-toggle-container">
+             <div className="home-toggle">
+               <button 
+                 className={homeTab === 'Dashboard' ? 'active' : ''} 
+                 onClick={() => setHomeTab('Dashboard')}
+               >
+                 <I.LayoutDashboard size={15} />
+                 <span>Dashboard</span>
+               </button>
+               <button 
+                 className={homeTab === 'History' ? 'active' : ''} 
+                 onClick={() => setHomeTab('History')}
+               >
+                 <I.History size={15} />
+                 <span>History</span>
+               </button>
              </div>
            </div>
-         )}
+           <div className="home-content-wrapper">
+             <div className="home-tab-content">
+               {homeTab === 'Dashboard' ? <Home /> : <Library />}
+             </div>
+           </div>
+         </div>
        </div>
-       <button className="avatar" onClick={()=>setModal('settings')} aria-label="Profile Settings">{profilePic ? <img src={profilePic} alt={profileName || 'You'}/> : <span>{(profileName || 'You').charAt(0).toUpperCase()}</span>}</button>
+     ) : active === 'Settings' ? (
+       <div className="settings-page page-card">
+         <Settings 
+           profileName={profileName} 
+           profilePic={profilePic} 
+           updateProfile={updateProfile} 
+           theme={theme} 
+           setTheme={setTheme} 
+           autoAccept={autoAccept} 
+           setAutoAccept={setAutoAccept} 
+           notifications={notifications} 
+           setNotifications={setNotifications} 
+           showToast={show} 
+         />
+       </div>
+     ) : active === 'Help' ? (
+       <div className="help-page page-card">
+         <Pair />
+       </div>
+     ) : null}
+    </div>
+   </main>
+   <input hidden multiple ref={picker} type="file" onChange={e=>addFiles(e.target.files)}/>
+     <div className="dock">
+      <div className="dock-group">
+        <button
+          className={`dock-item ${active==='Home'?'active':''}`}
+          onClick={()=>setActive('Home')}
+          data-label="Home"
+        >
+          <I.Home size={20}/>
+        </button>
+        <button
+          className={`dock-item ${modal==='devices'?'active':''}`}
+          onClick={()=>setModal('devices')}
+          data-label="Devices"
+        >
+          <I.Smartphone size={20}/>
+          {devices.filter(d => d.id !== socketId).length > 0 && (
+            <span className="dock-badge">{devices.filter(d => d.id !== socketId).length}</span>
+          )}
+        </button>
+        <div className="dock-divider" />
+        <button
+          className={`dock-item ${active==='Settings'?'active':''}`}
+          onClick={()=>setActive('Settings')}
+          data-label="Settings"
+        >
+          <I.Settings size={20}/>
+        </button>
+        <button
+          className={`dock-item ${active==='Help'?'active':''}`}
+          onClick={()=>setActive('Help')}
+          data-label="Help"
+        >
+          <I.CircleHelp size={20}/>
+        </button>
+      </div>
      </div>
-   </header>
-   <div className="content">
-    <section className="welcome"><div><p className="eyebrow">LOCAL NETWORK · SECURE</p><h1>{active==='Home'?(serverInfo?`Welcome to ${serverInfo.name}`:'Welcome back'):active}</h1><p>{active==='Home'?'Everything is connected and ready to share.':`Your ${active.toLowerCase()} stay private on this network.`}</p></div></section>
-    {active==='Home'?<Home/>:<Library/>}
-   </div>
-  </main>
-  <input hidden multiple ref={picker} type="file" onChange={e=>addFiles(e.target.files)}/>
-   <div className="dock">
-    <div className="dock-group">
-     {nav.map(([n,X])=>(
-       <button
-         key={n}
-         className={`dock-item ${active===n?'active':''}`}
-         onClick={()=>setActive(n)}
-         data-label={n}
-       >
-         <X size={20}/>
-         {n==='Clipboard'&&clipboardCount>0&&<span className="dock-badge">{clipboardCount}</span>}
-       </button>
-     ))}
-    </div>
-    <div className="dock-divider"/>
-    <div className="dock-group">
-      <button
-        className="dock-item dock-settings"
-        onClick={()=>setModal('settings')}
-        data-label="Settings"
-      >
-        <I.Settings size={20}/>
-      </button>
-      <button
-        className="dock-item dock-help"
-        onClick={()=>setModal('pair')}
-        data-label="Help & pairing"
-      >
-        <I.CircleHelp size={20}/>
-      </button>
-     </div>
-    </div>
-  {modal&&<Modal/>}{toast&&<div className="toast"><I.CheckCircle2 size={18}/>{toast}</div>}
- </div>
-
- function Home(){return <>
-  <section className="share-card" onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);addFiles(e.dataTransfer.files)}} data-drag={drag}>
-   <div className="share-copy"><span className="send-icon"><I.Send size={24}/></span><div><h2>Send something</h2><p>Drop files here or choose what you want to share.</p></div></div>
-   <div className="share-actions"><button className="primary" onClick={()=>picker.current.click()}><I.Plus size={18}/> Choose files</button><button onClick={()=>setModal('clipboard')}><I.Clipboard size={18}/> Paste text</button><button onClick={()=>setModal('link')}><I.Link2 size={18}/> Share link</button></div>
-  </section>
-  <div className="home-grid">
-   <section><div className="section-title"><div><h2>Nearby devices</h2><p>Devices on your local network</p></div><button onClick={()=>show('Network scan refreshed')}><I.RefreshCw size={16}/> Refresh</button></div>
-    <div className="device-container">
-     {devices.length?(<div className="device-grid">{devices.map(d=>{
-      const isMe=d.id===socketId;
-      const Icon=I[d.icon]||I.Smartphone;
-      const displayName=isMe?(profileName||d.name):d.name;
-      const displayPic=isMe?profilePic:d.pic;
-      return <button className="device" key={d.id} onClick={()=>show(isMe?'This is your current device':`${displayName} (${d.ip}) is connected`)}><div className={`device-icon ${displayPic ? 'custom-avatar' : d.color}`}>{displayPic ? <img src={displayPic} alt={displayName}/> : <Icon size={23}/>}<i className="on"/></div><div className="device-text"><b>{displayName} {isMe&&'(This device)'}</b><small>{isMe?'Active':d.ip}</small></div><span className="signal"><I.Signal size={17}/></span>{!isMe&&<span className="chev">›</span>}</button>;
-     })}</div>):(<div className="empty"><span><I.WifiOff size={28}/></span><h3>No other devices connected</h3><p>Scan the QR code or open the link on another device to start sharing.</p></div>)}
-    </div>
-   </section>
-   <section><div className="section-title"><div><h2>Recent activity</h2><p>Your latest transfers and shares</p></div><button onClick={()=>setActive('History')}>View all <I.ArrowRight size={16}/></button></div><TransferList list={filtered.slice(0,4)}/></section>
+   {modal&&<Modal/>}{toast&&<div className="toast"><I.CheckCircle2 size={18}/>{toast}</div>}
   </div>
- </>}
- function Library(){return <section className="library"><div className="library-head"><div><h2>{active}</h2><p>Search, sort and manage everything stored locally.</p></div><button className="primary" onClick={()=>(active==='Files'||active==='Media')?picker.current.click():setModal(active==='Clipboard'?'clipboard':active==='Links'?'link':'note')}><I.Plus size={18}/> Add new</button></div><div className="filters"><button className="selected">All</button><button>Favorites</button><button>From my devices</button><span/><div className="view-toggle"><button className={viewMode==='list'?'selected':''} onClick={()=>{setViewMode('list');localStorage.setItem('relay-view-mode','list')}} title="List view"><I.List size={16}/></button><button className={viewMode==='grid'?'selected':''} onClick={()=>{setViewMode('grid');localStorage.setItem('relay-view-mode','grid')}} title="Grid view"><I.LayoutGrid size={16}/></button></div><button><I.SlidersHorizontal size={16}/> Filter</button></div><TransferList list={filtered}/></section>}
+
+  function Home() {
+    return <>
+      <section>
+        <div className="section-title">
+          <div>
+            <h2>Recent activity</h2>
+            <p>Your latest transfers and shares</p>
+          </div>
+          <div className="desktop-filters-group">
+            {filterTabs.map(tab => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  className={contentFilter === tab.id ? 'selected' : ''}
+                  onClick={() => setContentFilter(tab.id)}
+                >
+                  <Icon size={14} />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mobile-filter-container" ref={homeFilterRef}>
+            <button className="mobile-filter-btn icon-only" onClick={() => setShowHomeFilter(!showHomeFilter)} title="Filter recent activity">
+              <I.SlidersHorizontal size={15} />
+              {contentFilter !== 'all' && <span className="filter-active-dot" />}
+            </button>
+            {showHomeFilter && (
+              <div className="filter-dropdown right-aligned">
+                {filterTabs.map(tab => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      className={contentFilter === tab.id ? 'selected' : ''}
+                      onClick={() => {
+                        setContentFilter(tab.id);
+                        setShowHomeFilter(false);
+                      }}
+                    >
+                      <Icon size={14} />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        <TransferList list={filtered.slice(0,4)}/>
+      </section>
+    </>;
+  }
+
+  function Library() {
+    return <section className="library">
+      <div className="section-title">
+        <div>
+          <h2>History</h2>
+          <p>Your shared history on this network</p>
+        </div>
+        <div className="library-actions-group">
+          <div className="mobile-filter-container" ref={libraryFilterRef}>
+            <button className="mobile-filter-btn icon-only" onClick={() => setShowLibraryFilter(!showLibraryFilter)} title="Filter library">
+              <I.SlidersHorizontal size={15} />
+              {contentFilter !== 'all' && <span className="filter-active-dot" />}
+            </button>
+            {showLibraryFilter && (
+              <div className="filter-dropdown right-aligned">
+                {filterTabs.map(tab => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      className={contentFilter === tab.id ? 'selected' : ''}
+                      onClick={() => {
+                        setContentFilter(tab.id);
+                        setShowLibraryFilter(false);
+                      }}
+                    >
+                      <Icon size={14} />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div className="view-toggle">
+            <button className={viewMode==='list'?'selected':''} onClick={()=>{setViewMode('list');localStorage.setItem('relay-view-mode','list')}} title="List view"><I.List size={16}/></button>
+            <button className={viewMode==='grid'?'selected':''} onClick={()=>{setViewMode('grid');localStorage.setItem('relay-view-mode','grid')}} title="Grid view"><I.LayoutGrid size={16}/></button>
+          </div>
+        </div>
+      </div>
+      <TransferList list={filtered}/>
+    </section>;
+  }
+
   function TransferCard({item}){
     const isImg = isImage(item);
     const isVid = isVideo(item);
@@ -447,8 +621,58 @@ function App(){
     }
     return <div className="transfer-list">{list.length?list.map(x=><div className="transfer" key={x.id}><span className={`file-icon ${x.color||'blue'}`}><FileIcon kind={x.kind||x.type}/></span><div className="file-name"><b>{x.name}</b><small>{x.meta||`${x.device||'Local device'} · ${x.size?formatSize(x.size):x.type||'Share'}`}</small></div><span className="complete"><I.Check size={13}/> {x.status}</span><time>{x.time||new Date(x.timestamp).toLocaleDateString()}</time>{x.path?<a className="download" href={`/api/download/${x.id}`} aria-label="Download"><I.Download size={18}/></a>:<button aria-label="More"><I.MoreHorizontal size={19}/></button>}</div>):<Empty/>}</div>;
   }
- function Empty(){const X=active==='Clipboard'?I.Clipboard:active==='Links'?I.Link2:active==='Notes'?I.NotebookPen:I.Images;return <div className="empty"><span><X size={28}/></span><h3>No {active.toLowerCase()} yet</h3><p>Anything you share will appear here and stay on this device.</p></div>}
- function Modal(){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&setModal(null)}><div className="modal"><button className="close" onClick={()=>setModal(null)}><I.X size={19}/></button>{modal==='pair'?<Pair/>:modal==='settings'?<Settings profileName={profileName} profilePic={profilePic} updateProfile={updateProfile} theme={theme} setTheme={setTheme} autoAccept={autoAccept} setAutoAccept={setAutoAccept} notifications={notifications} setNotifications={setNotifications} showToast={show}/>:<Composer/>}</div></div>}
+  function Empty(){
+    const currentFilterLabel = filterTabs.find(t => t.id === contentFilter)?.label || 'items';
+    const label = contentFilter === 'all' ? 'items' : currentFilterLabel.toLowerCase();
+    const X = contentFilter === 'clipboard' ? I.Clipboard
+            : contentFilter === 'links' ? I.Link2
+            : contentFilter === 'notes' ? I.NotebookPen
+            : contentFilter === 'media' ? I.Images
+            : contentFilter === 'files' ? I.Files
+            : I.History;
+    return <div className="empty"><span><X size={28}/></span><h3>No {label} yet</h3><p>Anything you share will appear here and stay on this device.</p></div>
+  }
+  function Modal(){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&setModal(null)}><div className="modal"><button className="close" onClick={()=>setModal(null)}><I.X size={19}/></button>{modal==='devices'?<DevicesModal/>:<Composer/>}</div></div>}
+  function DevicesModal() {
+    return <>
+      <span className="modal-icon"><I.Smartphone/></span>
+      <h2>Nearby Devices</h2>
+      <p>Devices on your local network</p>
+      <div className="modal-devices-container">
+        {devices.length ? (
+          devices.map(d => {
+            const isMe = d.id === socketId;
+            const Icon = I[d.icon] || I.Smartphone;
+            const displayName = isMe ? (profileName || d.name) : d.name;
+            const displayPic = isMe ? profilePic : d.pic;
+            return (
+              <button className="device" key={d.id} onClick={() => show(isMe ? 'This is your current device' : `${displayName} (${d.ip}) is connected`)}>
+                <div className={`device-icon ${displayPic ? 'custom-avatar' : d.color}`}>
+                  {displayPic ? <img src={displayPic} alt={displayName}/> : <Icon size={23}/>}
+                  <i className="on"/>
+                </div>
+                <div className="device-text">
+                  <b>{displayName} {isMe && '(This device)'}</b>
+                  <small>{isMe ? 'Active' : d.ip}</small>
+                </div>
+                <span className="signal"><I.Signal size={17}/></span>
+                {!isMe && <span className="chev">›</span>}
+              </button>
+            );
+          })
+        ) : (
+          <div className="empty" style={{ padding: '20px 10px' }}>
+            <span><I.WifiOff size={24}/></span>
+            <h3>No other devices</h3>
+            <p>Scan the QR code to connect.</p>
+          </div>
+        )}
+      </div>
+      <button className="primary full" onClick={()=>show('Network scan refreshed')} style={{ display: 'flex', gap: '8px', justifyContent: 'center', alignItems: 'center' }}>
+        <I.RefreshCw size={15}/> Refresh scan
+      </button>
+    </>;
+  }
  function Pair(){return <><span className="modal-icon"><I.QrCode/></span><h2>Connect your device</h2><p>Keep both devices on the same Wi-Fi, then scan this QR code with your phone or tablet camera.</p>{serverInfo?<img className="real-qr" src={serverInfo.qr} alt={`QR code for ${serverInfo.url}`}/>:<div className="qr"/>}<div className="server-url">{serverInfo?.url||'Starting local server…'}</div><small className="secure"><I.Lock size={13}/> Files stay on this Windows PC · Local network only</small></>}
  function Composer(){let title=modal==='clipboard'?'Paste text':modal==='link'?'Share a link':'New note';const send=async()=>{const content=composer.current?.value||'';if(!content.trim())return;const item=await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:modal==='clipboard'?'text':modal,content,senderName:profileName})}).then(r=>r.json());setTransfers(x=>[item,...x]);setModal(null);show(`${title} shared successfully`)};return <><span className="modal-icon">{modal==='clipboard'?<I.Clipboard/>:modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<textarea ref={composer} className="composer" rows="5" placeholder="Type or paste here..." autoFocus/>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
 }

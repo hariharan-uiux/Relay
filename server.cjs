@@ -29,9 +29,11 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
     filename: (_, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[<>:"/\\|?*]/g, '_')}`)
   }), limits: { fileSize: 10 * 1024 * 1024 * 1024 } });
   app.use(express.json({ limit: '20mb' }));
-  app.get('/api/info', async (_, res) => {
-    const url = `http://${lanAddress()}:${port}`;
-    res.json({ name: os.hostname(), address: lanAddress(), port, url, qr: await QRCode.toDataURL(url, { width: 360, margin: 1, color: { dark: '#171714', light: '#ffffff' } }) });
+  app.get('/api/info', async (req, res) => {
+    const clientPort = req.query.clientPort;
+    const activePort = (clientPort && clientPort !== String(port)) ? parseInt(clientPort, 10) : port;
+    const url = `http://${lanAddress()}:${activePort}`;
+    res.json({ name: os.hostname(), address: lanAddress(), port: activePort, url, qr: await QRCode.toDataURL(url, { width: 360, margin: 1, color: { dark: '#171714', light: '#ffffff' } }) });
   });
   app.get('/api/history', (_, res) => res.json(history));
   app.post('/api/upload', upload.array('files', 100), (req, res) => {
