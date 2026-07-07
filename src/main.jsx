@@ -51,6 +51,7 @@ function App(){
  const [profilePic,setProfilePic]=useState(() => localStorage.getItem('relay-profile-pic') || '');
  const [showHomeFilter,setShowHomeFilter]=useState(false);
  const [showLibraryFilter,setShowLibraryFilter]=useState(false);
+ const [previewFile,setPreviewFile]=useState(null);
  const picker=useRef(),composer=useRef(),socketRef=useRef(),bellDropdownRef=useRef(),homeFilterRef=useRef(),libraryFilterRef=useRef();
  const notificationsRef=useRef(notifications);
  const profileNameRef=useRef(profileName);
@@ -198,6 +199,143 @@ function App(){
 
    const isDark = theme === 'dark' || (theme === 'system' && systemDark);
    const show=t=>{setToast(t);setTimeout(()=>setToast(''),2400)};
+    const fallbackCopyText = (text) => {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.top = "0";
+      textArea.style.left = "0";
+      textArea.style.position = "fixed";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      try {
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+      } catch (err) {
+        document.body.removeChild(textArea);
+        return false;
+      }
+    };
+    const handleCopy = (text, message) => {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text)
+          .then(() => show(message || 'Copied to clipboard'))
+          .catch(() => {
+            const ok = fallbackCopyText(text);
+            show(ok ? (message || 'Copied to clipboard') : 'Failed to copy');
+          });
+      } else {
+        const ok = fallbackCopyText(text);
+        show(ok ? (message || 'Copied to clipboard') : 'Failed to copy');
+      }
+    };
+    const copyFileToClipboard = async (item) => {
+      const isImg = isImage(item);
+      const canUseClipboard = navigator.clipboard && window.ClipboardItem;
+      
+      if (isImg) {
+        if (!canUseClipboard) {
+          const downloadUrl = window.location.origin + `/api/download/${item.id}`;
+          handleCopy(downloadUrl, 'Image copy requires HTTPS or localhost (insecure context). Copied link!');
+          return;
+        }
+
+        show('Copying image...');
+        
+        const fetchAndConvertImage = () => {
+          return new Promise((resolve, reject) => {
+            fetch(`/api/preview/${item.id}`)
+              .then(response => {
+                if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                return response.blob();
+              })
+              .then(blob => {
+                if (blob.type === 'image/png') {
+                  resolve(blob);
+                  return;
+                }
+                
+                const img = new Image();
+                const objectUrl = URL.createObjectURL(blob);
+                img.onload = () => {
+                  URL.revokeObjectURL(objectUrl);
+                  const canvas = document.createElement('canvas');
+                  canvas.width = img.naturalWidth || img.width;
+                  canvas.height = img.naturalHeight || img.height;
+                  const ctx = canvas.getContext('2d');
+                  if (!ctx) {
+                    reject(new Error('Failed to get canvas 2d context'));
+                    return;
+                  }
+                  ctx.drawImage(img, 0, 0);
+                  canvas.toBlob((b) => {
+                    if (b) resolve(b);
+                    else reject(new Error('Canvas conversion failed'));
+                  }, 'image/png');
+                };
+                img.onerror = () => {
+                  URL.revokeObjectURL(objectUrl);
+                  reject(new Error('Image loading failed'));
+                };
+                img.src = objectUrl;
+              })
+              .catch(err => reject(err));
+          });
+        };
+
+        try {
+          // Method 1: Try fetching the blob first, then writing directly (most reliable in Chrome/Firefox)
+          const pngBlob = await fetchAndConvertImage();
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': pngBlob })
+          ]);
+          show('Image copied to clipboard!');
+          return;
+        } catch (directWriteErr) {
+          console.warn('Direct clipboard write failed, trying promise-based write...', directWriteErr);
+          
+          try {
+            // Method 2: Try Promise-based write (preferred by Safari)
+            const itemPromise = fetchAndConvertImage();
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': itemPromise })
+            ]);
+            show('Image copied to clipboard!');
+            return;
+          } catch (promiseWriteErr) {
+            console.error('All image copy methods failed:', promiseWriteErr);
+            const errMsg = promiseWriteErr.name === 'NotAllowedError' 
+              ? 'Clipboard permission denied or page not focused' 
+              : (promiseWriteErr.message || String(promiseWriteErr));
+            show(`Failed to copy image: ${errMsg}`);
+            
+            const downloadUrl = window.location.origin + `/api/download/${item.id}`;
+            handleCopy(downloadUrl, 'Copied download link instead.');
+          }
+        }
+        return;
+      }
+
+      // Check if it is a text-based file and copy its contents directly
+      const isTxt = item.name && /\.(txt|json|js|jsx|ts|tsx|css|html|xml|md|csv|ini|yaml|yml)$/i.test(item.name);
+      if (isTxt) {
+        show('Copying file content...');
+        try {
+          const response = await fetch(`/api/download/${item.id}`);
+          if (!response.ok) throw new Error('Network response not ok');
+          const text = await response.text();
+          handleCopy(text, 'File text content copied!');
+          return;
+        } catch (err) {
+          console.error('Failed to copy file content:', err);
+        }
+      }
+      
+      const downloadUrl = window.location.origin + `/api/download/${item.id}`;
+      handleCopy(downloadUrl, 'Download link copied to clipboard!');
+    };
    const addFiles=async list=>{const form=new FormData();[...list].forEach(f=>form.append('files',f));form.append('senderName',profileName);show(`Uploading ${list.length} file${list.length>1?'s':''}...`);try{const items=await fetch('/api/upload',{method:'POST',body:form}).then(r=>r.json());setTransfers(x=>[...items,...x]);show(`${items.length} file${items.length>1?'s':''} stored on this PC`)}catch{show('Upload failed — check the server connection')}};
    const clipboardCount=useMemo(()=>transfers.filter(x=>x.type==='text').length,[transfers]);
    const filtered=useMemo(()=>{
@@ -207,7 +345,7 @@ function App(){
       return matchName || matchContent;
     });
     if(contentFilter==='all')return searchFiltered;
-    if(contentFilter==='files')return searchFiltered.filter(x=>x.type==='file'||(!x.type&&x.path));
+    if(contentFilter==='files')return searchFiltered.filter(x=>(x.type==='file'||(!x.type&&x.path)) && !isImage(x) && !isVideo(x));
     if(contentFilter==='clipboard')return searchFiltered.filter(x=>x.type==='text');
     if(contentFilter==='links')return searchFiltered.filter(x=>x.type==='link');
     if(contentFilter==='notes')return searchFiltered.filter(x=>x.type==='note');
@@ -384,8 +522,165 @@ function App(){
         </button>
       </div>
      </div>
-   {modal&&<Modal/>}{toast&&<div className="toast"><I.CheckCircle2 size={18}/>{toast}</div>}
+   {modal&&<Modal/>}{previewFile&&<FilePreviewModal item={previewFile} onClose={()=>setPreviewFile(null)}/>}{toast&&<div className="toast"><I.CheckCircle2 size={18}/>{toast}</div>}
   </div>
+
+  function FilePreviewModal({ item, onClose }) {
+    const [textContent, setTextContent] = useState(null);
+    const [textLoading, setTextLoading] = useState(false);
+
+    const isImg = isImage(item);
+    const isVid = isVideo(item);
+    const isAudio = (item.mime || '').startsWith('audio/') || /\.(mp3|wav|ogg|flac|aac|m4a)$/i.test(item.name || '');
+    const isPdf = (item.mime || '') === 'application/pdf' || /\.pdf$/i.test(item.name || '');
+    const isTxt = item.name && /\.(txt|json|js|jsx|ts|tsx|css|html|xml|md|csv|ini|yaml|yml|log|sh|bat|py|rb|java|c|cpp|h|go|rs|toml|env|conf)$/i.test(item.name);
+    const isTextType = item.type === 'text';
+    const isNote = item.type === 'note';
+    const isLink = item.type === 'link';
+    const isFile = item.type === 'file';
+    const extension = item.name ? item.name.split('.').pop().toUpperCase() : '';
+
+    useEffect(() => {
+      if (isTxt && isFile && item.id) {
+        setTextLoading(true);
+        fetch(`/api/download/${item.id}`)
+          .then(r => r.ok ? r.text() : Promise.reject('Failed'))
+          .then(t => { setTextContent(t); setTextLoading(false); })
+          .catch(() => { setTextContent('Unable to load file content.'); setTextLoading(false); });
+      }
+    }, [item.id]);
+
+    useEffect(() => {
+      const onKey = e => { if (e.key === 'Escape') onClose(); };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [onClose]);
+
+    const getIconColor = () => {
+      if (isImg) return 'mint';
+      if (isVid || isAudio) return 'rose';
+      if (isPdf) return 'coral';
+      if (isTxt) return 'blue';
+      if (isTextType) return 'amber';
+      if (isNote) return 'mint';
+      if (isLink) return 'violet';
+      return item.color || 'blue';
+    };
+
+    const getIcon = () => {
+      if (isImg) return I.Image;
+      if (isVid) return I.Film;
+      if (isAudio) return I.Music;
+      if (isPdf) return I.FileText;
+      if (isTxt) return I.Code;
+      if (isTextType) return I.Clipboard;
+      if (isNote) return I.NotebookPen;
+      if (isLink) return I.Link2;
+      return I.File;
+    };
+
+    const getTitle = () => {
+      if (isFile) return item.name;
+      if (isTextType) return 'Clipboard Text';
+      if (isNote) return item.name || 'Shared Note';
+      if (isLink) return 'Shared Link';
+      return item.name || 'File';
+    };
+
+    const getMeta = () => {
+      if (isFile && item.size) return `${extension} · ${formatSize(item.size)}`;
+      if (isTextType && item.content) return `${item.content.length} characters`;
+      if (isNote && item.content) return `${item.content.length} characters`;
+      if (isLink) return item.content || '';
+      return extension || item.type || '';
+    };
+
+    const IconComponent = getIcon();
+    const iconColor = getIconColor();
+
+    const renderContent = () => {
+      if (isImg && isFile) {
+        return <img src={`/api/preview/${item.id}`} alt={item.name} />;
+      }
+      if (isVid && isFile) {
+        return <video src={`/api/preview/${item.id}`} controls autoPlay playsInline />;
+      }
+      if (isAudio && isFile) {
+        return <audio src={`/api/preview/${item.id}`} controls autoPlay />;
+      }
+      if (isPdf && isFile) {
+        return <iframe src={`/api/preview/${item.id}`} title={item.name} />;
+      }
+      if (isTxt && isFile) {
+        if (textLoading) return <div className="file-preview-fallback"><I.Loader size={24} className="spin" /><p>Loading file content...</p></div>;
+        return <pre className="file-preview-text">{textContent}</pre>;
+      }
+      if (isTextType) {
+        return <div className="file-preview-text-content">{item.content}</div>;
+      }
+      if (isNote) {
+        return <div className="file-preview-text-content">{item.content}</div>;
+      }
+      if (isLink) {
+        return (
+          <div className="file-preview-fallback">
+            <span className={`file-preview-fallback-icon ${iconColor}`}><I.Link2 size={32} /></span>
+            <h3>Shared Link</h3>
+            <a href={item.content} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--green)', fontSize: 13, wordBreak: 'break-all' }}>
+              {item.content} <I.ExternalLink size={12} style={{ marginLeft: 4 }} />
+            </a>
+            <button className="primary" onClick={() => handleCopy(item.content, 'Link copied!')}><I.Copy size={14} /> Copy Link</button>
+          </div>
+        );
+      }
+      return (
+        <div className="file-preview-fallback">
+          <span className={`file-preview-fallback-icon ${iconColor}`}><IconComponent size={32} /></span>
+          <h3>{item.name || 'File'}</h3>
+          <p>This file type cannot be previewed. Download to view it.</p>
+          {isFile && item.id && (
+            <a className="primary" href={`/api/download/${item.id}`} style={{ textDecoration: 'none' }}>
+              <I.Download size={14} /> Download
+            </a>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <div className="file-preview-overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+        <div className="file-preview-container">
+          <div className="file-preview-header">
+            <div className="file-preview-header-info">
+              <span className={`file-preview-header-icon ${iconColor}`}><IconComponent size={18} /></span>
+              <div className="file-preview-header-text">
+                <b title={getTitle()}>{getTitle()}</b>
+                <small>{getMeta()}</small>
+              </div>
+            </div>
+            <div className="file-preview-header-actions">
+              {isFile && item.id && (
+                <>
+                  <button onClick={() => copyFileToClipboard(item)} title="Copy"><I.Copy size={15} /></button>
+                  <a href={`/api/download/${item.id}`} title="Download"><I.Download size={15} /></a>
+                </>
+              )}
+              {(isTextType || isNote) && (
+                <button onClick={() => handleCopy(item.content, 'Copied!')} title="Copy text"><I.Copy size={15} /></button>
+              )}
+              {isLink && (
+                <button onClick={() => handleCopy(item.content, 'Link copied!')} title="Copy link"><I.Copy size={15} /></button>
+              )}
+            </div>
+            <button className="file-preview-close" onClick={onClose} title="Close"><I.X size={16} /></button>
+          </div>
+          <div className="file-preview-content">
+            {renderContent()}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   function Home() {
     return <>
@@ -411,7 +706,7 @@ function App(){
             })}
           </div>
           <div className="mobile-filter-container" ref={homeFilterRef}>
-            <button className="mobile-filter-btn icon-only" onClick={() => setShowHomeFilter(!showHomeFilter)} title="Filter recent activity">
+            <button className={`mobile-filter-btn icon-only ${contentFilter !== 'all' ? 'active' : ''}`} onClick={() => setShowHomeFilter(!showHomeFilter)} title="Filter recent activity">
               <I.SlidersHorizontal size={15} />
               {contentFilter !== 'all' && <span className="filter-active-dot" />}
             </button>
@@ -451,7 +746,7 @@ function App(){
         </div>
         <div className="library-actions-group">
           <div className="mobile-filter-container" ref={libraryFilterRef}>
-            <button className="mobile-filter-btn icon-only" onClick={() => setShowLibraryFilter(!showLibraryFilter)} title="Filter library">
+            <button className={`mobile-filter-btn icon-only ${contentFilter !== 'all' ? 'active' : ''}`} onClick={() => setShowLibraryFilter(!showLibraryFilter)} title="Filter library">
               <I.SlidersHorizontal size={15} />
               {contentFilter !== 'all' && <span className="filter-active-dot" />}
             </button>
@@ -491,11 +786,6 @@ function App(){
     const isVid = isVideo(item);
     const isF = item.type === 'file';
     
-    const handleCopy = (text, message) => {
-      navigator.clipboard.writeText(text);
-      show(message || 'Copied to clipboard');
-    };
-    
     const cardHeader = (
       <div className="card-header">
         <span className="card-device">
@@ -509,11 +799,16 @@ function App(){
       <div className="card-footer">
         <span className="complete"><I.Check size={11}/> {item.status}</span>
         {item.path ? (
-          <a className="download" href={`/api/download/${item.id}`} aria-label="Download" title="Download file">
-            <I.Download size={16}/>
-          </a>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <button aria-label="Copy file" onClick={() => copyFileToClipboard(item)} title="Copy file" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center' }}>
+              <I.Copy size={16}/>
+            </button>
+            <a className="download" href={`/api/download/${item.id}`} aria-label="Download" title="Download file" style={{ display: 'grid', placeItems: 'center' }}>
+              <I.Download size={16}/>
+            </a>
+          </div>
         ) : (
-          <button aria-label="More" onClick={() => handleCopy(item.content, 'Content copied!')} title="Copy content">
+          <button aria-label="Copy content" onClick={() => handleCopy(item.content, 'Content copied!')} title="Copy content">
             <I.Copy size={16}/>
           </button>
         )}
@@ -525,7 +820,7 @@ function App(){
       return (
         <div className={`transfer-card file ${item.color || 'blue'}`} key={item.id}>
           {cardHeader}
-          <div className="card-preview media">
+          <div className="card-preview media clickable" onClick={() => setPreviewFile(item)}>
             {isImg ? (
               <img src={`/api/preview/${item.id}`} alt={item.name} loading="lazy" />
             ) : isVid ? (
@@ -557,7 +852,7 @@ function App(){
       return (
         <div className={`transfer-card text amber`} key={item.id}>
           {cardHeader}
-          <div className="card-preview content-preview" onClick={() => handleCopy(item.content, 'Clipboard text copied!')}>
+          <div className="card-preview content-preview clickable" onClick={() => setPreviewFile(item)}>
             <span className="preview-icon"><I.Clipboard size={14}/></span>
             <div className="preview-text">{item.content}</div>
           </div>
@@ -573,7 +868,7 @@ function App(){
       return (
         <div className={`transfer-card link violet`} key={item.id}>
           {cardHeader}
-          <div className="card-preview content-preview">
+          <div className="card-preview content-preview clickable" onClick={() => setPreviewFile(item)}>
             <span className="preview-icon"><I.Link2 size={14}/></span>
             <a href={item.content} target="_blank" rel="noopener noreferrer" className="preview-link" title="Open link">
               {displayUrl} <I.ExternalLink size={10} style={{ marginLeft: 3 }}/>
@@ -590,7 +885,7 @@ function App(){
       return (
         <div className={`transfer-card note mint`} key={item.id}>
           {cardHeader}
-          <div className="card-preview content-preview" onClick={() => handleCopy(item.content, 'Note copied!')}>
+          <div className="card-preview content-preview clickable" onClick={() => setPreviewFile(item)}>
             <span className="preview-icon"><I.NotebookPen size={14}/></span>
             <div className="preview-text note-body">{item.content}</div>
           </div>
@@ -619,7 +914,20 @@ function App(){
     if (viewMode === 'grid') {
       return <div className="transfer-grid">{list.length ? list.map(x => <TransferCard key={x.id} item={x} />) : <Empty />}</div>;
     }
-    return <div className="transfer-list">{list.length?list.map(x=><div className="transfer" key={x.id}><span className={`file-icon ${x.color||'blue'}`}><FileIcon kind={x.kind||x.type}/></span><div className="file-name"><b>{x.name}</b><small>{x.meta||`${x.device||'Local device'} · ${x.size?formatSize(x.size):x.type||'Share'}`}</small></div><span className="complete"><I.Check size={13}/> {x.status}</span><time>{x.time||new Date(x.timestamp).toLocaleDateString()}</time>{x.path?<a className="download" href={`/api/download/${x.id}`} aria-label="Download"><I.Download size={18}/></a>:<button aria-label="More"><I.MoreHorizontal size={19}/></button>}</div>):<Empty/>}</div>;
+    return <div className="transfer-list">{list.length?list.map(x=><div className="transfer clickable" key={x.id} onClick={(e)=>{if(!e.target.closest('a')&&!e.target.closest('button'))setPreviewFile(x)}}><span className={`file-icon ${x.color||'blue'}`}><FileIcon kind={x.kind||x.type}/></span><div className="file-name"><b>{x.name}</b><small>{x.meta||`${x.device||'Local device'} · ${x.size?formatSize(x.size):x.type||'Share'}`}</small></div><span className="complete"><I.Check size={13}/> {x.status}</span><time>{x.time||new Date(x.timestamp).toLocaleDateString()}</time>{x.path ? (
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <button className="download" onClick={() => copyFileToClipboard(x)} title="Copy file" aria-label="Copy file" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center' }}>
+          <I.Copy size={18}/>
+        </button>
+        <a className="download" href={`/api/download/${x.id}`} aria-label="Download" title="Download file" style={{ display: 'grid', placeItems: 'center' }}>
+          <I.Download size={18}/>
+        </a>
+      </div>
+    ) : (
+      <button aria-label="Copy content" onClick={() => handleCopy(x.content, 'Content copied!')} title="Copy content" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center' }}>
+        <I.Copy size={18}/>
+      </button>
+    )}</div>):<Empty/>}</div>;
   }
   function Empty(){
     const currentFilterLabel = filterTabs.find(t => t.id === contentFilter)?.label || 'items';
