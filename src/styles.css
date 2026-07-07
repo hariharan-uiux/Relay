@@ -301,4 +301,306 @@
   font-size: 14px;
 }
 
+/* View Mode Toggle Styling */
+.view-toggle {
+  display: flex;
+  align-items: center;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.view-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transition: all 0.2s ease;
+}
+.view-toggle button:hover {
+  color: var(--ink);
+  background: var(--line);
+}
+.view-toggle button.selected {
+  background: var(--panel);
+  color: var(--green);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.dark .view-toggle button.selected {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Grid Layout Styling */
+.transfer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+
+.transfer-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 250px;
+  position: relative;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease;
+}
+.transfer-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.04);
+  border-color: var(--green);
+}
+.dark .transfer-card:hover {
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* Card Header */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--soft);
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+}
+.card-device {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-weight: 500;
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-time {
+  color: var(--muted);
+}
+
+/* Card Preview / Thumbnail */
+.card-preview {
+  position: relative;
+  height: 125px;
+  background: var(--soft);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card-preview.media img,
+.card-preview.media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+.transfer-card:hover .card-preview.media img,
+.transfer-card:hover .card-preview.media video {
+  transform: scale(1.05);
+}
+
+/* Video and Image Badges */
+.video-badge,
+.image-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(20, 22, 19, 0.72);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 2.5px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  letter-spacing: 0.5px;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* File Fallback Design */
+.card-file-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--soft) 0%, var(--panel) 100%);
+  gap: 8px;
+}
+.fallback-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: rgba(78, 154, 117, 0.08);
+  color: var(--green);
+  transition: transform 0.2s ease;
+}
+.transfer-card:hover .fallback-icon {
+  transform: scale(1.1);
+}
+.fallback-ext {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--soft);
+  border: 1px solid var(--line);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Content Previews (Text, Links, Notes) */
+.card-preview.content-preview {
+  cursor: pointer;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 6px;
+}
+.preview-icon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: var(--muted);
+  opacity: 0.4;
+}
+.preview-text {
+  color: var(--ink);
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-y: auto;
+  max-height: 100px;
+  padding-right: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.preview-text.note-body {
+  font-family: inherit;
+  font-size: 11px;
+}
+.preview-link {
+  color: var(--green);
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 600;
+  word-break: break-all;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  overflow-y: auto;
+  max-height: 100px;
+  padding-right: 4px;
+}
+.preview-link:hover {
+  text-decoration: underline;
+}
+
+/* Scrollbar for text previews */
+.preview-text::-webkit-scrollbar,
+.preview-link::-webkit-scrollbar {
+  width: 4px;
+}
+.preview-text::-webkit-scrollbar-track,
+.preview-link::-webkit-scrollbar-track {
+  background: transparent;
+}
+.preview-text::-webkit-scrollbar-thumb,
+.preview-link::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+
+/* Card Details */
+.card-details {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+.card-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.card-meta {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: left;
+}
+
+/* Card Footer */
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--line);
+}
+.card-footer .complete {
+  padding: 2px 6px;
+  font-size: 9px;
+  border-radius: 8px;
+}
+.card-footer .download,
+.card-footer button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.2s ease;
+}
+.card-footer .download:hover,
+.card-footer button:hover {
+  color: var(--green);
+  background: var(--soft);
+}
+
+/* Specific Card Colors for File Icons and Fallbacks */
+.transfer-card.blue .fallback-icon { background: rgba(62, 113, 128, 0.08); color: #3e7180; }
+.transfer-card.mint .fallback-icon { background: rgba(79, 123, 103, 0.08); color: #4f7b67; }
+.transfer-card.violet .fallback-icon { background: rgba(116, 91, 138, 0.08); color: #745b8a; }
+.transfer-card.rose .fallback-icon { background: rgba(153, 97, 93, 0.08); color: #99615d; }
+.transfer-card.amber .fallback-icon { background: rgba(138, 112, 66, 0.08); color: #8a7042; }
+.transfer-card.coral .fallback-icon { background: rgba(176, 93, 80, 0.08); color: #b05d50; }
+
+@media(max-width: 650px) {
+  .transfer-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
 

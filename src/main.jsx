@@ -7,9 +7,23 @@ import './styles.css';
 const nav=[['Home',I.Home],['Files',I.Files],['Clipboard',I.Clipboard],['Links',I.Link2],['Notes',I.NotebookPen],['Media',I.Images],['History',I.History]];
 function Logo({isMenu}){const Icon=isMenu?I.Menu:I.Wifi;return <div className="logo"><span><Icon size={18}/></span><b>Relay</b></div>}
 function FileIcon({kind}){const X=kind==='image'?I.Image:kind==='pdf'?I.FileText:kind==='text'?I.AlignLeft:I.Archive;return <X size={20}/>}
+const isImage = x => {
+  const mime = x.mime || '';
+  const name = x.name || '';
+  const type = x.kind || x.type || '';
+  return type === 'image' || mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|heic|svg)$/i.test(name);
+};
+const isVideo = x => {
+  const mime = x.mime || '';
+  const name = x.name || '';
+  const type = x.kind || x.type || '';
+  return type === 'video' || mime.startsWith('video/') || /\.(mp4|mov|webm|mkv|avi)$/i.test(name);
+};
+
 function App(){
  const [active,setActive]=useState('Home');
  const [query,setQuery]=useState('');
+ const [viewMode,setViewMode]=useState(() => localStorage.getItem('relay-view-mode') || 'grid');
  const [theme,setTheme]=useState(() => localStorage.getItem('relay-theme') || 'system');
  const [autoAccept,setAutoAccept]=useState(() => localStorage.getItem('relay-auto-accept') === null ? true : localStorage.getItem('relay-auto-accept') === 'true');
  const [notifications,setNotifications]=useState(() => localStorage.getItem('relay-notifications') === null ? true : localStorage.getItem('relay-notifications') === 'true');
@@ -297,14 +311,147 @@ function App(){
    <section><div className="section-title"><div><h2>Recent activity</h2><p>Your latest transfers and shares</p></div><button onClick={()=>setActive('History')}>View all <I.ArrowRight size={16}/></button></div><TransferList list={filtered.slice(0,4)}/></section>
   </div>
  </>}
- function Library(){return <section className="library"><div className="library-head"><div><h2>{active}</h2><p>Search, sort and manage everything stored locally.</p></div><button className="primary" onClick={()=>(active==='Files'||active==='Media')?picker.current.click():setModal(active==='Clipboard'?'clipboard':active==='Links'?'link':'note')}><I.Plus size={18}/> Add new</button></div><div className="filters"><button className="selected">All</button><button>Favorites</button><button>From my devices</button><span/><button><I.SlidersHorizontal size={16}/> Filter</button></div><TransferList list={filtered}/></section>}
- function TransferList({list}){return <div className="transfer-list">{list.length?list.map(x=><div className="transfer" key={x.id}><span className={`file-icon ${x.color||'blue'}`}><FileIcon kind={x.kind||x.type}/></span><div className="file-name"><b>{x.name}</b><small>{x.meta||`${x.device||'Local device'} · ${x.size?formatSize(x.size):x.type||'Share'}`}</small></div><span className="complete"><I.Check size={13}/> {x.status}</span><time>{x.time||new Date(x.timestamp).toLocaleDateString()}</time>{x.path?<a className="download" href={`/api/download/${x.id}`} aria-label="Download"><I.Download size={18}/></a>:<button aria-label="More"><I.MoreHorizontal size={19}/></button>}</div>):<Empty/>}</div>}
+ function Library(){return <section className="library"><div className="library-head"><div><h2>{active}</h2><p>Search, sort and manage everything stored locally.</p></div><button className="primary" onClick={()=>(active==='Files'||active==='Media')?picker.current.click():setModal(active==='Clipboard'?'clipboard':active==='Links'?'link':'note')}><I.Plus size={18}/> Add new</button></div><div className="filters"><button className="selected">All</button><button>Favorites</button><button>From my devices</button><span/><div className="view-toggle"><button className={viewMode==='list'?'selected':''} onClick={()=>{setViewMode('list');localStorage.setItem('relay-view-mode','list')}} title="List view"><I.List size={16}/></button><button className={viewMode==='grid'?'selected':''} onClick={()=>{setViewMode('grid');localStorage.setItem('relay-view-mode','grid')}} title="Grid view"><I.LayoutGrid size={16}/></button></div><button><I.SlidersHorizontal size={16}/> Filter</button></div><TransferList list={filtered}/></section>}
+  function TransferCard({item}){
+    const isImg = isImage(item);
+    const isVid = isVideo(item);
+    const isF = item.type === 'file';
+    
+    const handleCopy = (text, message) => {
+      navigator.clipboard.writeText(text);
+      show(message || 'Copied to clipboard');
+    };
+    
+    const cardHeader = (
+      <div className="card-header">
+        <span className="card-device">
+          <I.Laptop size={11} /> {item.device || 'Local device'}
+        </span>
+        <time className="card-time">{item.time || new Date(item.timestamp).toLocaleDateString()}</time>
+      </div>
+    );
+
+    const cardFooter = (
+      <div className="card-footer">
+        <span className="complete"><I.Check size={11}/> {item.status}</span>
+        {item.path ? (
+          <a className="download" href={`/api/download/${item.id}`} aria-label="Download" title="Download file">
+            <I.Download size={16}/>
+          </a>
+        ) : (
+          <button aria-label="More" onClick={() => handleCopy(item.content, 'Content copied!')} title="Copy content">
+            <I.Copy size={16}/>
+          </button>
+        )}
+      </div>
+    );
+
+    if (isF) {
+      const extension = item.name ? item.name.split('.').pop().toUpperCase() : 'FILE';
+      return (
+        <div className={`transfer-card file ${item.color || 'blue'}`} key={item.id}>
+          {cardHeader}
+          <div className="card-preview media">
+            {isImg ? (
+              <img src={`/api/preview/${item.id}`} alt={item.name} loading="lazy" />
+            ) : isVid ? (
+              <video
+                src={`/api/preview/${item.id}`}
+                muted
+                playsInline
+                preload="metadata"
+                onMouseEnter={e => e.target.play().catch(()=>{})}
+                onMouseLeave={e => { e.target.pause(); e.target.currentTime = 0; }}
+              />
+            ) : (
+              <div className="card-file-fallback">
+                <span className="fallback-icon"><FileIcon kind={item.kind || item.type} /></span>
+                <span className="fallback-ext">{extension}</span>
+              </div>
+            )}
+            {isVid && <span className="video-badge"><I.Play size={10} fill="currentColor"/> VIDEO</span>}
+            {isImg && <span className="image-badge"><I.Image size={10}/> IMAGE</span>}
+          </div>
+          <div className="card-details">
+            <b className="card-name" title={item.name}>{item.name}</b>
+            <small className="card-meta">{formatSize(item.size)}</small>
+          </div>
+          {cardFooter}
+        </div>
+      );
+    } else if (item.type === 'text') {
+      return (
+        <div className={`transfer-card text amber`} key={item.id}>
+          {cardHeader}
+          <div className="card-preview content-preview" onClick={() => handleCopy(item.content, 'Clipboard text copied!')}>
+            <span className="preview-icon"><I.Clipboard size={14}/></span>
+            <div className="preview-text">{item.content}</div>
+          </div>
+          <div className="card-details">
+            <b className="card-name">Clipboard Text</b>
+            <small className="card-meta">{item.content ? item.content.length : 0} chars</small>
+          </div>
+          {cardFooter}
+        </div>
+      );
+    } else if (item.type === 'link') {
+      const displayUrl = item.content ? item.content.replace(/https?:\/\/(www\.)?/, '') : '';
+      return (
+        <div className={`transfer-card link violet`} key={item.id}>
+          {cardHeader}
+          <div className="card-preview content-preview">
+            <span className="preview-icon"><I.Link2 size={14}/></span>
+            <a href={item.content} target="_blank" rel="noopener noreferrer" className="preview-link" title="Open link">
+              {displayUrl} <I.ExternalLink size={10} style={{ marginLeft: 3 }}/>
+            </a>
+          </div>
+          <div className="card-details">
+            <b className="card-name">Shared Link</b>
+            <small className="card-meta">Web link</small>
+          </div>
+          {cardFooter}
+        </div>
+      );
+    } else if (item.type === 'note') {
+      return (
+        <div className={`transfer-card note mint`} key={item.id}>
+          {cardHeader}
+          <div className="card-preview content-preview" onClick={() => handleCopy(item.content, 'Note copied!')}>
+            <span className="preview-icon"><I.NotebookPen size={14}/></span>
+            <div className="preview-text note-body">{item.content}</div>
+          </div>
+          <div className="card-details">
+            <b className="card-name">{item.name || 'Shared Note'}</b>
+            <small className="card-meta">Note</small>
+          </div>
+          {cardFooter}
+        </div>
+      );
+    }
+
+    return (
+      <div className="transfer-card default" key={item.id}>
+        {cardHeader}
+        <div className="card-details">
+          <b className="card-name">{item.name}</b>
+          <small className="card-meta">{item.type}</small>
+        </div>
+        {cardFooter}
+      </div>
+    );
+  }
+
+  function TransferList({list}){
+    if (viewMode === 'grid') {
+      return <div className="transfer-grid">{list.length ? list.map(x => <TransferCard key={x.id} item={x} />) : <Empty />}</div>;
+    }
+    return <div className="transfer-list">{list.length?list.map(x=><div className="transfer" key={x.id}><span className={`file-icon ${x.color||'blue'}`}><FileIcon kind={x.kind||x.type}/></span><div className="file-name"><b>{x.name}</b><small>{x.meta||`${x.device||'Local device'} · ${x.size?formatSize(x.size):x.type||'Share'}`}</small></div><span className="complete"><I.Check size={13}/> {x.status}</span><time>{x.time||new Date(x.timestamp).toLocaleDateString()}</time>{x.path?<a className="download" href={`/api/download/${x.id}`} aria-label="Download"><I.Download size={18}/></a>:<button aria-label="More"><I.MoreHorizontal size={19}/></button>}</div>):<Empty/>}</div>;
+  }
  function Empty(){const X=active==='Clipboard'?I.Clipboard:active==='Links'?I.Link2:active==='Notes'?I.NotebookPen:I.Images;return <div className="empty"><span><X size={28}/></span><h3>No {active.toLowerCase()} yet</h3><p>Anything you share will appear here and stay on this device.</p></div>}
  function Modal(){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&setModal(null)}><div className="modal"><button className="close" onClick={()=>setModal(null)}><I.X size={19}/></button>{modal==='pair'?<Pair/>:modal==='settings'?<Settings profileName={profileName} profilePic={profilePic} updateProfile={updateProfile} theme={theme} setTheme={setTheme} autoAccept={autoAccept} setAutoAccept={setAutoAccept} notifications={notifications} setNotifications={setNotifications} showToast={show}/>:<Composer/>}</div></div>}
  function Pair(){return <><span className="modal-icon"><I.QrCode/></span><h2>Connect your device</h2><p>Keep both devices on the same Wi-Fi, then scan this QR code with your phone or tablet camera.</p>{serverInfo?<img className="real-qr" src={serverInfo.qr} alt={`QR code for ${serverInfo.url}`}/>:<div className="qr"/>}<div className="server-url">{serverInfo?.url||'Starting local server…'}</div><small className="secure"><I.Lock size={13}/> Files stay on this Windows PC · Local network only</small></>}
  function Composer(){let title=modal==='clipboard'?'Paste text':modal==='link'?'Share a link':'New note';const send=async()=>{const content=composer.current?.value||'';if(!content.trim())return;const item=await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:modal==='clipboard'?'text':modal,content,senderName:profileName})}).then(r=>r.json());setTransfers(x=>[item,...x]);setModal(null);show(`${title} shared successfully`)};return <><span className="modal-icon">{modal==='clipboard'?<I.Clipboard/>:modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<textarea ref={composer} className="composer" rows="5" placeholder="Type or paste here..." autoFocus/>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
 }
-
 function Settings({ profileName, profilePic, updateProfile, theme, setTheme, autoAccept, setAutoAccept, notifications, setNotifications, showToast }) {
   const profilePicInput = useRef(null);
   const handlePicChange = e => {

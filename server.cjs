@@ -50,6 +50,11 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
     if (!item) return res.sendStatus(404);
     res.download(path.join(storageDir, item.path), item.name);
   });
+  app.get('/api/preview/:id', (req, res) => {
+    const item = history.find(x => x.id === req.params.id && x.path);
+    if (!item) return res.sendStatus(404);
+    res.sendFile(path.join(storageDir, item.path));
+  });
   app.delete('/api/history/:id', (req, res) => { history = history.filter(x => x.id !== req.params.id); save(); io.emit('history', history); res.sendStatus(204); });
   function getDeviceType(ua) {
     if (!ua) return { name: 'Unknown Device', icon: 'Smartphone', color: 'blue' };
