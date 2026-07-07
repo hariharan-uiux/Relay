@@ -23,7 +23,6 @@ function App(){
  const [socketId,setSocketId]=useState(null);
  const [drag,setDrag]=useState(false);
  const [serverInfo,setServerInfo]=useState(null);
- const [showSidebar,setShowSidebar]=useState(false);
  const [profileName,setProfileName]=useState(() => localStorage.getItem('relay-profile-name') || '');
  const [profilePic,setProfilePic]=useState(() => localStorage.getItem('relay-profile-pic') || '');
  const picker=useRef(),composer=useRef(),socketRef=useRef(),bellDropdownRef=useRef();
@@ -185,25 +184,13 @@ function App(){
  },[transfers,query,active]);
 
  return <div className={isDark ? 'app dark' : 'app'}>
-  <aside className={showSidebar ? 'open' : ''}>
-   <div className="mobile-aside-header">
-    <Logo/>
-    <button className="close-aside-btn" onClick={()=>setShowSidebar(false)} aria-label="Close menu"><I.X size={20}/></button>
-   </div>
-   <nav>{nav.map(([n,X])=><button className={active===n?'active':''} onClick={()=>{setActive(n);setShowSidebar(false)}} key={n}><X size={18}/><span>{n}</span>{n==='Clipboard'&&clipboardCount>0&&<em>{clipboardCount}</em>}</button>)}</nav>
-   <div className="side-bottom">
-    <button onClick={()=>{setModal('settings');setShowSidebar(false)}}><I.Settings size={18}/><span>Settings</span></button>
-    <button onClick={()=>{setModal('pair');setShowSidebar(false)}}><I.CircleHelp size={18}/><span>Help & pairing</span></button>
-    <div className="privacy"><I.ShieldCheck size={20}/><div><b>Private by design</b><small>Nothing leaves your network</small></div></div>
-   </div>
-  </aside>
   <main>
    <header>
-    <button className="mobile-logo" onClick={()=>setShowSidebar(true)} aria-label="Open menu"><Logo isMenu/></button>
+    <div className="header-logo"><Logo/></div>
     <div className="search"><I.Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search everything..."/><kbd>⌘ K</kbd></div>
      <div className="head-actions">
-       <button onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button>
-       <button title="Pair a device" onClick={()=>setModal('pair')}><I.QrCode size={18}/></button>
+       <button className="theme-btn" onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button>
+       <button className="header-pair-btn" title="Pair a device" onClick={()=>setModal('pair')}><I.QrCode size={18}/></button>
        <div className="bell-container">
          <button className="bell-btn" onClick={() => {
            setShowBellDropdown(!showBellDropdown);
@@ -255,7 +242,38 @@ function App(){
    </div>
   </main>
   <input hidden multiple ref={picker} type="file" onChange={e=>addFiles(e.target.files)}/>
-  {showSidebar && <div className="aside-backdrop" onClick={()=>setShowSidebar(false)} />}
+   <div className="dock">
+    <div className="dock-group">
+     {nav.map(([n,X])=>(
+       <button
+         key={n}
+         className={`dock-item ${active===n?'active':''}`}
+         onClick={()=>setActive(n)}
+         data-label={n}
+       >
+         <X size={20}/>
+         {n==='Clipboard'&&clipboardCount>0&&<span className="dock-badge">{clipboardCount}</span>}
+       </button>
+     ))}
+    </div>
+    <div className="dock-divider"/>
+    <div className="dock-group">
+      <button
+        className="dock-item dock-settings"
+        onClick={()=>setModal('settings')}
+        data-label="Settings"
+      >
+        <I.Settings size={20}/>
+      </button>
+      <button
+        className="dock-item dock-help"
+        onClick={()=>setModal('pair')}
+        data-label="Help & pairing"
+      >
+        <I.CircleHelp size={20}/>
+      </button>
+     </div>
+    </div>
   {modal&&<Modal/>}{toast&&<div className="toast"><I.CheckCircle2 size={18}/>{toast}</div>}
  </div>
 
@@ -285,7 +303,7 @@ function App(){
  function Modal(){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&setModal(null)}><div className="modal"><button className="close" onClick={()=>setModal(null)}><I.X size={19}/></button>{modal==='pair'?<Pair/>:modal==='settings'?<Settings profileName={profileName} profilePic={profilePic} updateProfile={updateProfile} theme={theme} setTheme={setTheme} autoAccept={autoAccept} setAutoAccept={setAutoAccept} notifications={notifications} setNotifications={setNotifications} showToast={show}/>:<Composer/>}</div></div>}
  function Pair(){return <><span className="modal-icon"><I.QrCode/></span><h2>Connect your device</h2><p>Keep both devices on the same Wi-Fi, then scan this QR code with your phone or tablet camera.</p>{serverInfo?<img className="real-qr" src={serverInfo.qr} alt={`QR code for ${serverInfo.url}`}/>:<div className="qr"/>}<div className="server-url">{serverInfo?.url||'Starting local server…'}</div><small className="secure"><I.Lock size={13}/> Files stay on this Windows PC · Local network only</small></>}
  function Composer(){let title=modal==='clipboard'?'Paste text':modal==='link'?'Share a link':'New note';const send=async()=>{const content=composer.current?.value||'';if(!content.trim())return;const item=await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:modal==='clipboard'?'text':modal,content,senderName:profileName})}).then(r=>r.json());setTransfers(x=>[item,...x]);setModal(null);show(`${title} shared successfully`)};return <><span className="modal-icon">{modal==='clipboard'?<I.Clipboard/>:modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<textarea ref={composer} className="composer" rows="5" placeholder="Type or paste here..." autoFocus/>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
- }
+}
 
 function Settings({ profileName, profilePic, updateProfile, theme, setTheme, autoAccept, setAutoAccept, notifications, setNotifications, showToast }) {
   const profilePicInput = useRef(null);
@@ -375,6 +393,13 @@ function Settings({ profileName, profilePic, updateProfile, theme, setTheme, aut
           localStorage.setItem('relay-notifications', String(next));
         }}/>
       </label>
+      <div className="privacy">
+        <I.ShieldCheck size={20}/>
+        <div>
+          <b>Private by design</b>
+          <small>Nothing leaves your network</small>
+        </div>
+      </div>
     </>;
 }
 function formatSize(n){if(n<1e6)return Math.round(n/1e3)+' KB';if(n<1e9)return (n/1e6).toFixed(1)+' MB';return (n/1e9).toFixed(1)+' GB'}
