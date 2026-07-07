@@ -1549,3 +1549,30 @@ section+section {
 }
 
 
+
+/* --- Card device info (two-line: name + model) --- */
+.card-device { display: flex; align-items: center; gap: 5px; color: var(--muted); max-width: 62%; overflow: hidden; }
+.card-device-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow: hidden; }
+.card-device-name { font-size: 10px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.card-device-model { font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+
+/* --- Device modal rows --- */
+.device-row { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: 12px 14px; min-width: 0; transition: border-color 0.2s, box-shadow 0.2s; }
+.device-row:hover { border-color: #9eb6a8; box-shadow: 0 4px 12px rgba(40,60,50,.07); }
+.device-row.device-me { border-color: var(--green); background: linear-gradient(135deg, var(--panel) 0%, #2e74550a 100%); }
+.device-name-row { display: flex; align-items: center; gap: 6px; }
+.device-name-row b { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.device-me-badge { color: var(--green); font-weight: 700; font-size: 10px; }
+.device-platform-label { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.device-ip { color: var(--muted); opacity: 0.7; }
+.device-rename-btn { border: 0; background: transparent; color: var(--muted); padding: 3px; cursor: pointer; border-radius: 5px; display: grid; place-items: center; flex-shrink: 0; opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s; }
+.device-row:hover .device-rename-btn, .device-rename-btn:focus { opacity: 1; }
+.device-rename-btn:hover { background: var(--soft); color: var(--green); }
+.device-rename-row { display: flex; align-items: center; gap: 5px; width: 100%; }
+.device-rename-input { flex: 1; min-width: 0; border: 1px solid var(--green); background: var(--soft); color: var(--ink); border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; outline: none; transition: box-shadow 0.15s; }
+.device-rename-input:focus { box-shadow: 0 0 0 2px #2e74551a; }
+.device-rename-save, .device-rename-cancel { border: 0; border-radius: 6px; display: grid; place-items: center; width: 26px; height: 26px; cursor: pointer; flex-shrink: 0; transition: all 0.15s; }
+.device-rename-save { background: var(--green); color: var(--panel); }
+.device-rename-save:hover { opacity: 0.85; }
+.device-rename-cancel { background: var(--soft); color: var(--muted); border: 1px solid var(--line); }
+.device-rename-cancel:hover { color: #df725d; background: #df725d0f; border-color: #df725d; }

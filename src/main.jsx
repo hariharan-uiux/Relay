@@ -15,6 +15,22 @@ const filterTabs = [
 ];
 function Logo({isMenu}){const Icon=isMenu?I.Menu:I.Wifi;return <div className="logo"><span><Icon size={18}/></span><b>Relay</b></div>}
 function FileIcon({kind}){const X=kind==='image'?I.Image:kind==='pdf'?I.FileText:kind==='text'?I.AlignLeft:I.Archive;return <X size={20}/>}
+const PLATFORM_ICONS = { ios: I.Smartphone, android: I.Smartphone, mac: I.Laptop, windows: I.Monitor, linux: I.Monitor, web: I.Globe, local: I.Monitor, unknown: I.HelpCircle };
+const PLATFORM_COLORS = { ios: 'var(--blue)', android: 'var(--green)', mac: 'var(--purple)', windows: 'var(--amber)', linux: 'var(--coral)', web: 'var(--muted)', local: 'var(--amber)', unknown: 'var(--muted)' };
+const PLATFORM_NAMES = { ios: 'iPhone', android: 'Android', mac: 'Mac', windows: 'Windows PC', linux: 'Linux PC', web: 'Web Browser', local: 'This Device', unknown: 'Device' };
+function getDeviceName(item) {
+  if (item.devicePlatform && PLATFORM_NAMES[item.devicePlatform]) return PLATFORM_NAMES[item.devicePlatform];
+  if (item.deviceIcon === 'Smartphone') return 'Mobile';
+  if (item.deviceIcon === 'Tablet') return 'Tablet';
+  if (item.deviceIcon === 'Laptop') return 'Laptop';
+  if (item.deviceIcon === 'Monitor') return 'Desktop';
+  return 'This Device';
+}
+function DeviceIcon({ platform, icon, size = 11 }) {
+  const PIcon = PLATFORM_ICONS[platform] || (I[icon]) || I.Monitor;
+  const color = PLATFORM_COLORS[platform] || 'var(--muted)';
+  return <PIcon size={size} style={{ color, flexShrink: 0 }} />;
+}
 const isImage = x => {
   const mime = x.mime || '';
   const name = x.name || '';
@@ -231,6 +247,16 @@ function App(){
         show(ok ? (message || 'Copied to clipboard') : 'Failed to copy');
       }
     };
+    const deleteTransfer = async (id) => {
+      try {
+        await fetch(`/api/history/${id}`, { method: 'DELETE' });
+        setTransfers(prev => prev.filter(x => x.id !== id));
+        show('Deleted');
+      } catch {
+        show('Failed to delete');
+      }
+    };
+
     const copyFileToClipboard = async (item) => {
       const isImg = isImage(item);
       const canUseClipboard = navigator.clipboard && window.ClipboardItem;
@@ -522,10 +548,10 @@ function App(){
         </button>
       </div>
      </div>
-   {modal&&<Modal/>}{previewFile&&<FilePreviewModal item={previewFile} onClose={()=>setPreviewFile(null)}/>}{toast&&<div className="toast"><I.CheckCircle2 size={18}/>{toast}</div>}
+   {modal&&<Modal/>}{previewFile&&<FilePreviewModal item={previewFile} onClose={()=>setPreviewFile(null)} onDelete={deleteTransfer}/>}{toast&&<div className="toast"><I.CheckCircle2 size={18}/>{toast}</div>}
   </div>
 
-  function FilePreviewModal({ item, onClose }) {
+  function FilePreviewModal({ item, onClose, onDelete }) {
     const [textContent, setTextContent] = useState(null);
     const [textLoading, setTextLoading] = useState(false);
 
@@ -663,13 +689,20 @@ function App(){
                 <>
                   <button onClick={() => copyFileToClipboard(item)} title="Copy"><I.Copy size={15} /></button>
                   <a href={`/api/download/${item.id}`} title="Download"><I.Download size={15} /></a>
+                  <button onClick={() => { onDelete(item.id); onClose(); }} title="Delete" style={{ color: '#e53e3e' }}><I.Trash2 size={15} /></button>
                 </>
               )}
               {(isTextType || isNote) && (
-                <button onClick={() => handleCopy(item.content, 'Copied!')} title="Copy text"><I.Copy size={15} /></button>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <button onClick={() => handleCopy(item.content, 'Copied!')} title="Copy text"><I.Copy size={15} /></button>
+                  <button onClick={() => { onDelete(item.id); onClose(); }} title="Delete" style={{ color: '#e53e3e' }}><I.Trash2 size={15} /></button>
+                </div>
               )}
               {isLink && (
-                <button onClick={() => handleCopy(item.content, 'Link copied!')} title="Copy link"><I.Copy size={15} /></button>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <button onClick={() => handleCopy(item.content, 'Link copied!')} title="Copy link"><I.Copy size={15} /></button>
+                  <button onClick={() => { onDelete(item.id); onClose(); }} title="Delete" style={{ color: '#e53e3e' }}><I.Trash2 size={15} /></button>
+                </div>
               )}
             </div>
             <button className="file-preview-close" onClick={onClose} title="Close"><I.X size={16} /></button>
@@ -789,7 +822,11 @@ function App(){
     const cardHeader = (
       <div className="card-header">
         <span className="card-device">
-          <I.Laptop size={11} /> {item.device || 'Local device'}
+          <DeviceIcon platform={item.devicePlatform} icon={item.deviceIcon} size={11} />
+          <span className="card-device-info">
+            <span className="card-device-name">{getDeviceName(item)}</span>
+            {item.deviceModel && <span className="card-device-model">{item.deviceModel}</span>}
+          </span>
         </span>
         <time className="card-time">{item.time || new Date(item.timestamp).toLocaleDateString()}</time>
       </div>
@@ -806,11 +843,19 @@ function App(){
             <a className="download" href={`/api/download/${item.id}`} aria-label="Download" title="Download file" style={{ display: 'grid', placeItems: 'center' }}>
               <I.Download size={16}/>
             </a>
+            <button aria-label="Delete file" onClick={() => deleteTransfer(item.id)} title="Delete file" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: '#e53e3e', display: 'grid', placeItems: 'center' }}>
+              <I.Trash2 size={16}/>
+            </button>
           </div>
         ) : (
-          <button aria-label="Copy content" onClick={() => handleCopy(item.content, 'Content copied!')} title="Copy content">
-            <I.Copy size={16}/>
-          </button>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <button aria-label="Copy content" onClick={() => handleCopy(item.content, 'Content copied!')} title="Copy content">
+              <I.Copy size={16}/>
+            </button>
+            <button aria-label="Delete" onClick={() => deleteTransfer(item.id)} title="Delete" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: '#e53e3e', display: 'grid', placeItems: 'center' }}>
+              <I.Trash2 size={16}/>
+            </button>
+          </div>
         )}
       </div>
     );
@@ -914,7 +959,7 @@ function App(){
     if (viewMode === 'grid') {
       return <div className="transfer-grid">{list.length ? list.map(x => <TransferCard key={x.id} item={x} />) : <Empty />}</div>;
     }
-    return <div className="transfer-list">{list.length?list.map(x=><div className="transfer clickable" key={x.id} onClick={(e)=>{if(!e.target.closest('a')&&!e.target.closest('button'))setPreviewFile(x)}}><span className={`file-icon ${x.color||'blue'}`}><FileIcon kind={x.kind||x.type}/></span><div className="file-name"><b>{x.name}</b><small>{x.meta||`${x.device||'Local device'} · ${x.size?formatSize(x.size):x.type||'Share'}`}</small></div><span className="complete"><I.Check size={13}/> {x.status}</span><time>{x.time||new Date(x.timestamp).toLocaleDateString()}</time>{x.path ? (
+    return <div className="transfer-list">{list.length?list.map(x=><div className="transfer clickable" key={x.id} onClick={(e)=>{if(!e.target.closest('a')&&!e.target.closest('button'))setPreviewFile(x)}}><span className={`file-icon ${x.color||'blue'}`}><FileIcon kind={x.kind||x.type}/></span><div className="file-name"><b>{x.name}</b><small><DeviceIcon platform={x.devicePlatform} icon={x.deviceIcon} size={11}/> {getDeviceName(x)}{x.deviceModel ? ` · ${x.deviceModel}` : ''} · {x.size?formatSize(x.size):x.type||'Share'}</small></div><span className="complete"><I.Check size={13}/> {x.status}</span><time>{x.time||new Date(x.timestamp).toLocaleDateString()}</time>{x.path ? (
       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
         <button className="download" onClick={() => copyFileToClipboard(x)} title="Copy file" aria-label="Copy file" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center' }}>
           <I.Copy size={18}/>
@@ -922,11 +967,19 @@ function App(){
         <a className="download" href={`/api/download/${x.id}`} aria-label="Download" title="Download file" style={{ display: 'grid', placeItems: 'center' }}>
           <I.Download size={18}/>
         </a>
+        <button onClick={e => { e.stopPropagation(); deleteTransfer(x.id); }} title="Delete" aria-label="Delete" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: '#e53e3e', display: 'grid', placeItems: 'center' }}>
+          <I.Trash2 size={18}/>
+        </button>
       </div>
     ) : (
-      <button aria-label="Copy content" onClick={() => handleCopy(x.content, 'Content copied!')} title="Copy content" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center' }}>
-        <I.Copy size={18}/>
-      </button>
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <button aria-label="Copy content" onClick={() => handleCopy(x.content, 'Content copied!')} title="Copy content" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center' }}>
+          <I.Copy size={18}/>
+        </button>
+        <button onClick={e => { e.stopPropagation(); deleteTransfer(x.id); }} title="Delete" aria-label="Delete" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: '#e53e3e', display: 'grid', placeItems: 'center' }}>
+          <I.Trash2 size={18}/>
+        </button>
+      </div>
     )}</div>):<Empty/>}</div>;
   }
   function Empty(){
@@ -942,6 +995,32 @@ function App(){
   }
   function Modal(){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&setModal(null)}><div className="modal"><button className="close" onClick={()=>setModal(null)}><I.X size={19}/></button>{modal==='devices'?<DevicesModal/>:<Composer/>}</div></div>}
   function DevicesModal() {
+    const [renamingId, setRenamingId] = useState(null);
+    const [renameValue, setRenameValue] = useState('');
+    const renameInputRef = useRef(null);
+
+    const startRename = (d) => {
+      setRenamingId(d.id);
+      setRenameValue(d.customName || d.name);
+      setTimeout(() => renameInputRef.current?.focus(), 50);
+    };
+
+    const commitRename = (id) => {
+      if (renameValue.trim() && socketRef.current) {
+        socketRef.current.emit('rename-device', { targetId: id, newName: renameValue.trim() });
+      }
+      setRenamingId(null);
+    };
+
+    const getPlatformLabel = (d) => {
+      if (d.platform === 'ios') return d.model || 'iOS Device';
+      if (d.platform === 'android') return d.model || 'Android Device';
+      if (d.platform === 'mac') return d.model || 'macOS';
+      if (d.platform === 'windows') return d.model || 'Windows';
+      if (d.platform === 'linux') return 'Linux';
+      return d.model || d.ip || '';
+    };
+
     return <>
       <span className="modal-icon"><I.Smartphone/></span>
       <h2>Nearby Devices</h2>
@@ -950,22 +1029,45 @@ function App(){
         {devices.length ? (
           devices.map(d => {
             const isMe = d.id === socketId;
-            const Icon = I[d.icon] || I.Smartphone;
-            const displayName = isMe ? (profileName || d.name) : d.name;
+            const PIcon = PLATFORM_ICONS[d.platform] || I[d.icon] || I.Smartphone;
+            const displayName = d.customName || (isMe ? (profileName || d.name) : d.name);
             const displayPic = isMe ? profilePic : d.pic;
+            const platformLabel = getPlatformLabel(d);
             return (
-              <button className="device" key={d.id} onClick={() => show(isMe ? 'This is your current device' : `${displayName} (${d.ip}) is connected`)}>
+              <div className={`device device-row ${isMe ? 'device-me' : ''}`} key={d.id}>
                 <div className={`device-icon ${displayPic ? 'custom-avatar' : d.color}`}>
-                  {displayPic ? <img src={displayPic} alt={displayName}/> : <Icon size={23}/>}
+                  {displayPic ? <img src={displayPic} alt={displayName}/> : <PIcon size={23}/>}
                   <i className="on"/>
                 </div>
                 <div className="device-text">
-                  <b>{displayName} {isMe && '(This device)'}</b>
-                  <small>{isMe ? 'Active' : d.ip}</small>
+                  {renamingId === d.id ? (
+                    <div className="device-rename-row">
+                      <input
+                        ref={renameInputRef}
+                        className="device-rename-input"
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') commitRename(d.id); if (e.key === 'Escape') setRenamingId(null); }}
+                        placeholder="Device name…"
+                        maxLength={32}
+                      />
+                      <button className="device-rename-save" onClick={() => commitRename(d.id)} title="Save name"><I.Check size={14}/></button>
+                      <button className="device-rename-cancel" onClick={() => setRenamingId(null)} title="Cancel"><I.X size={14}/></button>
+                    </div>
+                  ) : (
+                    <div className="device-name-row">
+                      <b>{displayName}{isMe && <span className="device-me-badge"> · You</span>}</b>
+                      <button className="device-rename-btn" onClick={() => startRename(d)} title="Rename device"><I.Pencil size={12}/></button>
+                    </div>
+                  )}
+                  <small className="device-platform-label">
+                    <DeviceIcon platform={d.platform} icon={d.icon} size={11}/>
+                    {platformLabel}
+                    {!isMe && <span className="device-ip"> · {d.ip}</span>}
+                  </small>
                 </div>
                 <span className="signal"><I.Signal size={17}/></span>
-                {!isMe && <span className="chev">›</span>}
-              </button>
+              </div>
             );
           })
         ) : (
@@ -981,6 +1083,7 @@ function App(){
       </button>
     </>;
   }
+
  function Pair(){return <><span className="modal-icon"><I.QrCode/></span><h2>Connect your device</h2><p>Keep both devices on the same Wi-Fi, then scan this QR code with your phone or tablet camera.</p>{serverInfo?<img className="real-qr" src={serverInfo.qr} alt={`QR code for ${serverInfo.url}`}/>:<div className="qr"/>}<div className="server-url">{serverInfo?.url||'Starting local server…'}</div><small className="secure"><I.Lock size={13}/> Files stay on this Windows PC · Local network only</small></>}
  function Composer(){let title=modal==='clipboard'?'Paste text':modal==='link'?'Share a link':'New note';const send=async()=>{const content=composer.current?.value||'';if(!content.trim())return;const item=await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:modal==='clipboard'?'text':modal,content,senderName:profileName})}).then(r=>r.json());setTransfers(x=>[item,...x]);setModal(null);show(`${title} shared successfully`)};return <><span className="modal-icon">{modal==='clipboard'?<I.Clipboard/>:modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<textarea ref={composer} className="composer" rows="5" placeholder="Type or paste here..." autoFocus/>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
 }

@@ -20,6 +20,22 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
   fs.mkdirSync(storageDir, { recursive: true });
   let history = [];
   try { history = JSON.parse(fs.readFileSync(historyFile, 'utf8')); } catch {}
+  // Backfill devicePlatform on legacy history items that predate UA detection
+  history = history.map(item => {
+    if (item.devicePlatform) return item; // already tagged
+    const name = (item.name || '').toLowerCase();
+    const mime = (item.mime || '').toLowerCase();
+    // HEIC/HEIF are iPhone-exclusive formats
+    if (/\.heic$|\.heif$/.test(name) || mime === 'image/heic' || mime === 'image/heif') {
+      return { ...item, devicePlatform: 'ios', deviceIcon: 'Smartphone', deviceModel: 'iPhone', deviceColor: 'blue' };
+    }
+    // AAC/M4A often come from Apple devices
+    if (/\.m4a$|\.mov$/.test(name)) {
+      return { ...item, devicePlatform: 'ios', deviceIcon: 'Smartphone', deviceModel: 'iPhone', deviceColor: 'blue' };
+    }
+    // Default: mark as local (uploaded from the server machine)
+    return { ...item, devicePlatform: 'local', deviceIcon: 'Monitor', deviceModel: 'Local upload', deviceColor: 'amber' };
+  });
   const save = () => fs.writeFileSync(historyFile, JSON.stringify(history.slice(0, 1000), null, 2));
   const app = express();
   const server = http.createServer(app);
@@ -38,13 +54,43 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
   app.get('/api/history', (_, res) => res.json(history));
   app.post('/api/upload', upload.array('files', 100), (req, res) => {
     const senderName = req.body.senderName || '';
-    const items = (req.files || []).map(f => ({ id: `${Date.now()}-${Math.random()}`, name: f.originalname, size: f.size, mime: f.mimetype, type: 'file', timestamp: new Date().toISOString(), device: senderName || req.ip, path: f.filename, status: 'Complete' }));
+    const ua = req.headers['user-agent'] || '';
+    const deviceInfo = getDeviceType(ua);
+    const items = (req.files || []).map(f => ({
+      id: `${Date.now()}-${Math.random()}`,
+      name: f.originalname,
+      size: f.size,
+      mime: f.mimetype,
+      type: 'file',
+      timestamp: new Date().toISOString(),
+      device: senderName || deviceInfo.name,
+      deviceModel: deviceInfo.model,
+      deviceIcon: deviceInfo.icon,
+      deviceColor: deviceInfo.color,
+      devicePlatform: deviceInfo.platform,
+      path: f.filename,
+      status: 'Complete'
+    }));
     history.unshift(...items); save(); io.emit('history', history); res.json(items);
   });
   app.post('/api/share', (req, res) => {
     const { type = 'text', content = '', senderName = '' } = req.body || {};
     if (!content.trim()) return res.status(400).json({ error: 'Content is required' });
-    const item = { id: `${Date.now()}`, name: type === 'link' ? content : content.slice(0, 60), content, type, timestamp: new Date().toISOString(), device: senderName || req.ip, status: 'Complete' };
+    const ua = req.headers['user-agent'] || '';
+    const deviceInfo = getDeviceType(ua);
+    const item = {
+      id: `${Date.now()}`,
+      name: type === 'link' ? content : content.slice(0, 60),
+      content,
+      type,
+      timestamp: new Date().toISOString(),
+      device: senderName || deviceInfo.name,
+      deviceModel: deviceInfo.model,
+      deviceIcon: deviceInfo.icon,
+      deviceColor: deviceInfo.color,
+      devicePlatform: deviceInfo.platform,
+      status: 'Complete'
+    };
     history.unshift(item); save(); io.emit('history', history); res.json(item);
   });
   app.get('/api/download/:id', (req, res) => {
@@ -57,17 +103,71 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
     if (!item) return res.sendStatus(404);
     res.sendFile(path.join(storageDir, item.path));
   });
-  app.delete('/api/history/:id', (req, res) => { history = history.filter(x => x.id !== req.params.id); save(); io.emit('history', history); res.sendStatus(204); });
+  app.delete('/api/history/:id', (req, res) => {
+    const item = history.find(x => x.id === req.params.id);
+    if (item && item.path) {
+      const filePath = path.join(storageDir, item.path);
+      try { fs.unlinkSync(filePath); } catch {}
+    }
+    history = history.filter(x => x.id !== req.params.id); save(); io.emit('history', history); res.sendStatus(204);
+  });
   function getDeviceType(ua) {
-    if (!ua) return { name: 'Unknown Device', icon: 'Smartphone', color: 'blue' };
+    if (!ua) return { name: 'Unknown Device', model: '', icon: 'Smartphone', color: 'blue', platform: 'unknown' };
     const lower = ua.toLowerCase();
-    if (lower.includes('iphone')) return { name: 'iPhone', icon: 'Smartphone', color: 'blue' };
-    if (lower.includes('ipad')) return { name: 'iPad', icon: 'Tablet', color: 'rose' };
-    if (lower.includes('android')) return { name: 'Android Device', icon: 'Smartphone', color: 'mint' };
-    if (lower.includes('macintosh') || lower.includes('mac os')) return { name: 'MacBook', icon: 'Laptop', color: 'violet' };
-    if (lower.includes('windows')) return { name: 'Windows PC', icon: 'Monitor', color: 'amber' };
-    if (lower.includes('linux')) return { name: 'Linux PC', icon: 'Monitor', color: 'coral' };
-    return { name: 'Web Client', icon: 'Monitor', color: 'blue' };
+
+    // iPhone — extract model from UA e.g. "iPhone OS 17_0" or "iPhone14,3"
+    if (lower.includes('iphone')) {
+      let model = 'iPhone';
+      const osMatch = ua.match(/iPhone OS ([\d_]+)/);
+      if (osMatch) model = `iPhone · iOS ${osMatch[1].replace(/_/g, '.')}`;
+      return { name: 'iPhone', model, icon: 'Smartphone', color: 'blue', platform: 'ios' };
+    }
+
+    // iPad
+    if (lower.includes('ipad')) {
+      let model = 'iPad';
+      const osMatch = ua.match(/CPU OS ([\d_]+)/);
+      if (osMatch) model = `iPad · iPadOS ${osMatch[1].replace(/_/g, '.')}`;
+      return { name: 'iPad', model, icon: 'Tablet', color: 'rose', platform: 'ios' };
+    }
+
+    // Android — extract brand/model
+    if (lower.includes('android')) {
+      let model = 'Android Device';
+      const verMatch = ua.match(/Android ([\d.]+)/);
+      const deviceMatch = ua.match(/;\s*([^;)]+)\s*Build\//);
+      if (deviceMatch) {
+        model = deviceMatch[1].trim();
+        if (verMatch) model += ` · Android ${verMatch[1]}`;
+      } else if (verMatch) {
+        model = `Android ${verMatch[1]}`;
+      }
+      return { name: deviceMatch ? deviceMatch[1].trim() : 'Android', model, icon: 'Smartphone', color: 'mint', platform: 'android' };
+    }
+
+    // macOS
+    if (lower.includes('macintosh') || lower.includes('mac os x')) {
+      let model = 'Mac';
+      const verMatch = ua.match(/Mac OS X ([\d_]+)/);
+      if (verMatch) model = `macOS ${verMatch[1].replace(/_/g, '.')}`;
+      return { name: 'Mac', model, icon: 'Laptop', color: 'violet', platform: 'mac' };
+    }
+
+    // Windows
+    if (lower.includes('windows')) {
+      let model = 'Windows PC';
+      if (lower.includes('windows nt 10') || lower.includes('windows 11')) model = 'Windows 10/11';
+      else if (lower.includes('windows nt 6.3')) model = 'Windows 8.1';
+      else if (lower.includes('windows nt 6.1')) model = 'Windows 7';
+      return { name: 'Windows PC', model, icon: 'Monitor', color: 'amber', platform: 'windows' };
+    }
+
+    // Linux
+    if (lower.includes('linux')) {
+      return { name: 'Linux PC', model: 'Linux', icon: 'Monitor', color: 'coral', platform: 'linux' };
+    }
+
+    return { name: 'Web Client', model: 'Browser', icon: 'Globe', color: 'blue', platform: 'web' };
   }
   const activeDevices = new Map();
 
@@ -79,11 +179,14 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
     const deviceInfo = {
       id: socket.id,
       name: device.name,
+      model: device.model,
       ip: cleanIp,
       icon: device.icon,
       color: device.color,
+      platform: device.platform,
       online: true,
-      pic: null
+      pic: null,
+      customName: null
     };
     activeDevices.set(socket.id, deviceInfo);
     io.emit('devices', Array.from(activeDevices.values()));
@@ -94,6 +197,13 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
       if (dev && data) {
         if (data.name) dev.name = data.name;
         if (data.hasOwnProperty('pic')) dev.pic = data.pic;
+        io.emit('devices', Array.from(activeDevices.values()));
+      }
+    });
+    socket.on('rename-device', ({ targetId, newName }) => {
+      const dev = activeDevices.get(targetId);
+      if (dev && newName && newName.trim()) {
+        dev.customName = newName.trim();
         io.emit('devices', Array.from(activeDevices.values()));
       }
     });
