@@ -43,6 +43,17 @@ const isVideo = x => {
   const type = x.kind || x.type || '';
   return type === 'video' || mime.startsWith('video/') || /\.(mp4|mov|webm|mkv|avi)$/i.test(name);
 };
+function checklistItems(content) {
+  const lines = (content || '').split('\n');
+  return lines.map((line, i) => {
+    const m = line.match(/^- ?\[( |x|X)\] ?(.*)/);
+    if (!m) return null;
+    return { index: i, checked: m[1] !== ' ', text: m[2] || '', raw: line };
+  });
+}
+function hasChecklists(content) {
+  return checklistItems(content).some(Boolean);
+}
 
 function App(){
  const [active,setActive]=useState('Home');
@@ -67,7 +78,7 @@ function App(){
  const [profilePic,setProfilePic]=useState(() => localStorage.getItem('relay-profile-pic') || '');
  const [showHomeFilter,setShowHomeFilter]=useState(false);
  const [showLibraryFilter,setShowLibraryFilter]=useState(false);
- const [previewFile,setPreviewFile]=useState(null);
+  const [previewFile, setPreviewFile] = useState(null);
  const picker=useRef(),composer=useRef(),socketRef=useRef(),bellDropdownRef=useRef(),homeFilterRef=useRef(),libraryFilterRef=useRef();
  const notificationsRef=useRef(notifications);
  const profileNameRef=useRef(profileName);
@@ -167,7 +178,9 @@ function App(){
         if (prev.length === 0) {
           return items;
         }
-        const newItems = items.filter(newItem => !prev.some(oldItem => oldItem.id === newItem.id));
+        const existingIds = new Set(prev.map(x => x.id));
+        const updated = prev.map(p => items.find(x => x.id === p.id) || p);
+        const newItems = items.filter(x => !existingIds.has(x.id));
         newItems.forEach(item => {
           if (item.device !== profileNameRef.current) {
             let title = 'New Transfer';
@@ -188,6 +201,7 @@ function App(){
             triggerNotification(title, body, item.type);
           }
         });
+        if (newItems.length === 0) return updated;
         return items;
       });
     });
@@ -362,7 +376,7 @@ function App(){
       const downloadUrl = window.location.origin + `/api/download/${item.id}`;
       handleCopy(downloadUrl, 'Download link copied to clipboard!');
     };
-   const addFiles=async list=>{const form=new FormData();[...list].forEach(f=>form.append('files',f));form.append('senderName',profileName);show(`Uploading ${list.length} file${list.length>1?'s':''}...`);try{const items=await fetch('/api/upload',{method:'POST',body:form}).then(r=>r.json());setTransfers(x=>[...items,...x]);show(`${items.length} file${items.length>1?'s':''} stored on this PC`)}catch{show('Upload failed — check the server connection')}};
+   const addFiles=async list=>{const form=new FormData();[...list].forEach(f=>form.append('files',f));form.append('senderName',profileName);show(`Uploading ${list.length} file${list.length>1?'s':''}...`);try{await fetch('/api/upload',{method:'POST',body:form});show(`${list.length} file${list.length>1?'s':''} stored on this PC`)}catch{show('Upload failed — check the server connection')}};
    const clipboardCount=useMemo(()=>transfers.filter(x=>x.type==='text').length,[transfers]);
    const filtered=useMemo(()=>{
     const searchFiltered = transfers.filter(x=>{
@@ -458,10 +472,9 @@ function App(){
            <section className="share-card" onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);addFiles(e.dataTransfer.files)}} data-drag={drag}>
              <div className="share-copy"><span className="send-icon"><I.Send size={24}/></span><div><h2>Send something</h2><p>Drop files here or choose what you want to share.</p></div></div>
              <div className="share-actions">
-               <button className="primary" onClick={()=>picker.current.click()}><I.Plus size={18}/> Choose files</button>
-               <button onClick={()=>setModal('clipboard')}><I.Clipboard size={18}/> Paste text</button>
-               <button onClick={()=>setModal('link')}><I.Link2 size={18}/> Share link</button>
-               <button onClick={()=>setModal('note')}><I.NotebookPen size={18}/> New note</button>
+                <button className="primary" onClick={()=>picker.current.click()}><I.Plus size={18}/> Choose files</button>
+                <button onClick={()=>setModal('write')}><I.NotebookPen size={18}/> Notes</button>
+                <button onClick={()=>setModal('link')}><I.Link2 size={18}/> Share link</button>
              </div>
            </section>
            <div className="home-toggle-container">
@@ -554,6 +567,10 @@ function App(){
   function FilePreviewModal({ item, onClose, onDelete }) {
     const [textContent, setTextContent] = useState(null);
     const [textLoading, setTextLoading] = useState(false);
+    const [editingNote, setEditingNote] = useState(false);
+    const [noteDraft, setNoteDraft] = useState('');
+    const [clContent, setClContent] = useState(item.content);
+    const noteEditRef = useRef(null);
 
     const isImg = isImage(item);
     const isVid = isVideo(item);
@@ -624,6 +641,12 @@ function App(){
     const IconComponent = getIcon();
     const iconColor = getIconColor();
 
+    const saveNote = async () => {
+      await fetch(`/api/history/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: noteDraft }) });
+      setClContent(noteDraft);
+      setEditingNote(false);
+    };
+
     const renderContent = () => {
       if (isImg && isFile) {
         return <img src={`/api/preview/${item.id}`} alt={item.name} />;
@@ -645,7 +668,14 @@ function App(){
         return <div className="file-preview-text-content">{item.content}</div>;
       }
       if (isNote) {
-        return <div className="file-preview-text-content">{item.content}</div>;
+        if (editingNote) {
+          return <div className="file-preview-edit"><textarea ref={noteEditRef} className="composer" rows="8" value={noteDraft} onChange={e => setNoteDraft(e.target.value)} autoFocus /><div className="file-preview-edit-actions"><button className="primary" onClick={saveNote}><I.Check size={14} /> Save</button><button onClick={() => setEditingNote(false)} style={{ border: '1px solid var(--line)', background: 'var(--soft)', color: 'var(--muted)', borderRadius: '9px', padding: '10px 15px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}><I.X size={14} /> Cancel</button></div></div>;
+        }
+        const clItems = checklistItems(clContent);
+        if (clItems.some(Boolean)) {
+          return <div className="file-preview-checklist">{(clContent || '').split('\n').map((line, i) => { const cl = clItems[i]; if (!cl) return <div key={i} className="file-preview-text-line">{line || '\u00A0'}</div>; return <label key={i} className={`checklist-row ${cl.checked?'done':''}`} onClick={() => { const lines = (clContent || '').split('\n'); lines[i] = lines[i].replace(/^(- ?\[)[ xX]( ?\])/, (_, p1, p2) => `${p1}${cl.checked ? ' ' : 'x'}${p2}`); const updated = lines.join('\n'); setClContent(updated); fetch(`/api/history/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: updated }) }); }}><span className="checklist-dot">{cl.checked?<I.CheckCircle2 size={20}/>:<I.Circle size={20}/>}</span><span className="checklist-text">{cl.text || '\u00A0'}</span></label>; })}</div>;
+        }
+        return <div className="file-preview-text-content">{clContent}</div>;
       }
       if (isLink) {
         return (
@@ -694,6 +724,7 @@ function App(){
               )}
               {(isTextType || isNote) && (
                 <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  {isNote && <button onClick={() => { setEditingNote(true); setNoteDraft(clContent); setTimeout(() => noteEditRef.current?.focus(), 50); }} title="Edit note"><I.Pencil size={15} /></button>}
                   <button onClick={() => handleCopy(item.content, 'Copied!')} title="Copy text"><I.Copy size={15} /></button>
                   <button onClick={() => { onDelete(item.id); onClose(); }} title="Delete" style={{ color: '#e53e3e' }}><I.Trash2 size={15} /></button>
                 </div>
@@ -927,12 +958,14 @@ function App(){
         </div>
       );
     } else if (item.type === 'note') {
+      const clItems = checklistItems(item.content);
+      const hasCL = clItems.some(Boolean);
       return (
         <div className={`transfer-card note mint`} key={item.id}>
           {cardHeader}
           <div className="card-preview content-preview clickable" onClick={() => setPreviewFile(item)}>
             <span className="preview-icon"><I.NotebookPen size={14}/></span>
-            <div className="preview-text note-body">{item.content}</div>
+            <div className="preview-text note-body">{hasCL ? clItems.map((cl, i) => cl ? <span key={i} className="cl-preview"><span className="cl-preview-icon">{cl.checked?<I.CheckCircle2 size={12}/>:<I.Circle size={12}/>}</span><span className={`cl-preview-text${cl.checked?' done':''}`}>{cl.text}</span></span> : null) : item.content}</div>
           </div>
           <div className="card-details">
             <b className="card-name">{item.name || 'Shared Note'}</b>
@@ -1085,7 +1118,7 @@ function App(){
   }
 
  function Pair(){return <><span className="modal-icon"><I.QrCode/></span><h2>Connect your device</h2><p>Keep both devices on the same Wi-Fi, then scan this QR code with your phone or tablet camera.</p>{serverInfo?<img className="real-qr" src={serverInfo.qr} alt={`QR code for ${serverInfo.url}`}/>:<div className="qr"/>}<div className="server-url">{serverInfo?.url||'Starting local server…'}</div><small className="secure"><I.Lock size={13}/> Files stay on this Windows PC · Local network only</small></>}
- function Composer(){let title=modal==='clipboard'?'Paste text':modal==='link'?'Share a link':'New note';const send=async()=>{const content=composer.current?.value||'';if(!content.trim())return;const item=await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:modal==='clipboard'?'text':modal,content,senderName:profileName})}).then(r=>r.json());setTransfers(x=>[item,...x]);setModal(null);show(`${title} shared successfully`)};return <><span className="modal-icon">{modal==='clipboard'?<I.Clipboard/>:modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<textarea ref={composer} className="composer" rows="5" placeholder="Type or paste here..." autoFocus/>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
+  function Composer(){const isWrite=modal==='write';const title=modal==='link'?'Share a link':'Notes';const [isChecklist,setIsChecklist]=useState(false);const titleRef=useRef(null);const send=async()=>{let content,noteName;if(isChecklist){const editor=document.querySelector('.cl-editor');if(!editor)return;const items=[];editor.querySelectorAll('.cl-line-text').forEach(el=>{const t=el.textContent.trim();if(t)items.push(`- [ ] ${t}`)});if(!items.length)return;content=items.join('\n')}else{content=composer.current?.value||'';if(!content.trim())return}noteName=titleRef.current?.value.trim()||'';const type=isWrite?'note':modal;await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,content,name:noteName||undefined,senderName:profileName})});setModal(null);show(`${title} shared successfully`)};const onClKeyDown=e=>{if(e.key==='Enter'){e.preventDefault();addClLine()}if(e.key==='Backspace'&&!e.target.textContent.trim()){e.preventDefault();const line=e.target.closest('.cl-line');const editor=document.querySelector('.cl-editor');if(!line||!editor||editor.children.length<=1)return;const prev=line.previousElementSibling;editor.removeChild(line);if(prev){const prevText=prev.querySelector('.cl-line-text');prevText?.focus();const range=document.createRange();range.setStart(prevText,prevText.textContent.length);range.collapse(true);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range)}else{const first=editor.querySelector('.cl-line-text');first?.focus()}}};const addClLine=()=>{const el=document.createElement('div');el.className='cl-line';el.innerHTML='<span class="cl-line-dot"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></span><span class="cl-line-text" contentEditable="true"></span>';const editor=document.querySelector('.cl-editor');if(!editor)return;const lastLine=editor.lastElementChild;if(lastLine&&!lastLine.querySelector('.cl-line-remove')){const btn=document.createElement('button');btn.className='cl-line-remove';btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';btn.onclick=()=>{editor.removeChild(lastLine);if(editor.children.length===1)editor.querySelector('.cl-line-remove')?.remove()};lastLine.appendChild(btn)}editor.appendChild(el);const textSpan=el.querySelector('.cl-line-text');textSpan.focus();textSpan.addEventListener('keydown',onClKeyDown)};const initCl=()=>{setIsChecklist(true);setTimeout(()=>{const editor=document.querySelector('.cl-editor');if(!editor)return;editor.innerHTML='';const el=document.createElement('div');el.className='cl-line';el.innerHTML='<span class="cl-line-dot"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></span><span class="cl-line-text" contentEditable="true"></span>';editor.appendChild(el);const textSpan=el.querySelector('.cl-line-text');textSpan.addEventListener('keydown',onClKeyDown);textSpan.focus()},10)};return <><span className="modal-icon">{modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal!=='link'&&<div style={{display:'flex',gap:'6px',marginBottom:'12px'}}><button className={`pair ${!isChecklist?'active':''}`} style={{flex:1,justifyContent:'center',fontSize:12,padding:'8px',background:isChecklist?'var(--panel)':'var(--green)',color:isChecklist?'var(--ink)':'var(--panel)',border:isChecklist?'1px solid var(--line)':'0'}} onClick={()=>{setIsChecklist(false)}}><I.NotebookPen size={13}/> Note</button><button className={`pair ${isChecklist?'active':''}`} style={{flex:1,justifyContent:'center',fontSize:12,padding:'8px',background:isChecklist?'var(--green)':'var(--panel)',color:isChecklist?'var(--panel)':'var(--ink)',border:isChecklist?'0':'1px solid var(--line)'}} onClick={initCl}><I.ListChecks size={13}/> Checklist</button></div>}{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<><input ref={titleRef} className="cl-title-input" placeholder="Title (optional)" autoFocus={!isChecklist}/>{isChecklist?<div className="cl-editor"></div>:<textarea ref={composer} className="composer" rows="5" placeholder="Type note..." style={{marginTop:'8px'}}/>}</>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
 }
 function Settings({ profileName, profilePic, updateProfile, theme, setTheme, autoAccept, setAutoAccept, notifications, setNotifications, showToast }) {
   const profilePicInput = useRef(null);

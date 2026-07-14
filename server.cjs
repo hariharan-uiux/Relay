@@ -74,13 +74,13 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
     history.unshift(...items); save(); io.emit('history', history); res.json(items);
   });
   app.post('/api/share', (req, res) => {
-    const { type = 'text', content = '', senderName = '' } = req.body || {};
+    const { type = 'text', content = '', senderName = '', name } = req.body || {};
     if (!content.trim()) return res.status(400).json({ error: 'Content is required' });
     const ua = req.headers['user-agent'] || '';
     const deviceInfo = getDeviceType(ua);
     const item = {
       id: `${Date.now()}`,
-      name: type === 'link' ? content : content.slice(0, 60),
+      name: name || (type === 'link' ? content : content.slice(0, 60)),
       content,
       type,
       timestamp: new Date().toISOString(),
@@ -110,6 +110,16 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
       try { fs.unlinkSync(filePath); } catch {}
     }
     history = history.filter(x => x.id !== req.params.id); save(); io.emit('history', history); res.sendStatus(204);
+  });
+  app.put('/api/history/:id', (req, res) => {
+    const idx = history.findIndex(x => x.id === req.params.id);
+    if (idx === -1) return res.sendStatus(404);
+    const { content, name } = req.body || {};
+    if (content !== undefined) history[idx].content = content;
+    if (name !== undefined) history[idx].name = name;
+    history[idx].edited = true;
+    history[idx].editedAt = new Date().toISOString();
+    save(); io.emit('history', history); res.json(history[idx]);
   });
   function getDeviceType(ua) {
     if (!ua) return { name: 'Unknown Device', model: '', icon: 'Smartphone', color: 'blue', platform: 'unknown' };
