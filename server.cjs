@@ -114,9 +114,14 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
   app.put('/api/history/:id', (req, res) => {
     const idx = history.findIndex(x => x.id === req.params.id);
     if (idx === -1) return res.sendStatus(404);
-    const { content, name } = req.body || {};
+    const { content, name, pinned, tags } = req.body || {};
     if (content !== undefined) history[idx].content = content;
     if (name !== undefined) history[idx].name = name;
+    if (pinned !== undefined) history[idx].pinned = !!pinned;
+    if (tags !== undefined) {
+      if (Array.isArray(tags)) history[idx].tags = tags.slice(0, 16).map(t => String(t).slice(0, 32).trim()).filter(Boolean);
+      else delete history[idx].tags;
+    }
     history[idx].edited = true;
     history[idx].editedAt = new Date().toISOString();
     save(); io.emit('history', history); res.json(history[idx]);
