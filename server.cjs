@@ -44,6 +44,13 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
     destination: (_, __, cb) => cb(null, storageDir),
     filename: (_, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[<>:"/\\|?*]/g, '_')}`)
   }), limits: { fileSize: 10 * 1024 * 1024 * 1024 } });
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    next();
+  });
   app.use(express.json({ limit: '20mb' }));
   app.get('/api/info', async (req, res) => {
     const clientPort = req.query.clientPort;
@@ -52,26 +59,35 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
     res.json({ name: os.hostname(), address: lanAddress(), port: activePort, url, qr: await QRCode.toDataURL(url, { width: 360, margin: 1, color: { dark: '#171714', light: '#ffffff' } }) });
   });
   app.get('/api/history', (_, res) => res.json(history));
-  app.post('/api/upload', upload.array('files', 100), (req, res) => {
-    const senderName = req.body.senderName || '';
-    const ua = req.headers['user-agent'] || '';
-    const deviceInfo = getDeviceType(ua);
-    const items = (req.files || []).map(f => ({
-      id: `${Date.now()}-${Math.random()}`,
-      name: f.originalname,
-      size: f.size,
-      mime: f.mimetype,
-      type: 'file',
-      timestamp: new Date().toISOString(),
-      device: senderName || deviceInfo.name,
-      deviceModel: deviceInfo.model,
-      deviceIcon: deviceInfo.icon,
-      deviceColor: deviceInfo.color,
-      devicePlatform: deviceInfo.platform,
-      path: f.filename,
-      status: 'Complete'
-    }));
-    history.unshift(...items); save(); io.emit('history', history); res.json(items);
+  app.post('/api/upload', (req, res) => {
+    upload.array('files', 100)(req, res, err => {
+      if (err) {
+        console.error('Upload error:', err);
+        return res.status(400).json({ error: err.message || 'Upload failed' });
+      }
+      const senderName = req.body.senderName || '';
+      const ua = req.headers['user-agent'] || '';
+      const deviceInfo = getDeviceType(ua);
+      const items = (req.files || []).map(f => ({
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        name: f.originalname || 'file',
+        size: f.size,
+        mime: f.mimetype,
+        type: 'file',
+        timestamp: new Date().toISOString(),
+        device: senderName || deviceInfo.name,
+        deviceModel: deviceInfo.model,
+        deviceIcon: deviceInfo.icon,
+        deviceColor: deviceInfo.color,
+        devicePlatform: deviceInfo.platform,
+        path: f.filename,
+        status: 'Complete'
+      }));
+      history.unshift(...items);
+      save();
+      io.emit('history', history);
+      res.json(items);
+    });
   });
   app.post('/api/share', (req, res) => {
     const { type = 'text', content = '', senderName = '', name } = req.body || {};
@@ -96,7 +112,12 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
   app.get('/api/download/:id', (req, res) => {
     const item = history.find(x => x.id === req.params.id && x.path);
     if (!item) return res.sendStatus(404);
-    res.download(path.join(storageDir, item.path), item.name);
+    const filePath = path.join(storageDir, item.path);
+    if (!fs.existsSync(filePath)) return res.sendStatus(404);
+    if (item.mime) {
+      res.setHeader('Content-Type', item.mime);
+    }
+    res.download(filePath, item.name || 'file');
   });
   app.get('/api/preview/:id', (req, res) => {
     const item = history.find(x => x.id === req.params.id && x.path);
@@ -110,6 +131,20 @@ function startRelayServer({ port = 4866, root = __dirname, dataDir = path.join(o
       try { fs.unlinkSync(filePath); } catch {}
     }
     history = history.filter(x => x.id !== req.params.id); save(); io.emit('history', history); res.sendStatus(204);
+  });
+  app.delete('/api/reset', (req, res) => {
+    // Delete all stored files
+    try {
+      const files = fs.readdirSync(storageDir);
+      for (const file of files) {
+        try { fs.unlinkSync(path.join(storageDir, file)); } catch {}
+      }
+    } catch {}
+    // Clear history
+    history = [];
+    save();
+    io.emit('history', history);
+    res.sendStatus(204);
   });
   app.put('/api/history/:id', (req, res) => {
     const idx = history.findIndex(x => x.id === req.params.id);

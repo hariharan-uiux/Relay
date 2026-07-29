@@ -7,11 +7,10 @@ import './styles.css';
 const nav=[['Home',I.Home],['Settings',I.Settings],['Help',I.QrCode]];
 const filterTabs = [
   { id: 'all', label: 'All', icon: I.Layers },
+  { id: 'media', label: 'Media', icon: I.Images },
   { id: 'files', label: 'Files', icon: I.Files },
-  { id: 'clipboard', label: 'Clipboard', icon: I.Clipboard },
   { id: 'links', label: 'Links', icon: I.Link2 },
-  { id: 'notes', label: 'Notes', icon: I.NotebookPen },
-  { id: 'media', label: 'Media', icon: I.Images }
+  { id: 'clipboard', label: 'Clipboard', icon: I.Clipboard }
 ];
 function Logo({isMenu}){const Icon=isMenu?I.Menu:I.Wifi;return <div className="logo"><span><Icon size={18}/></span><b>Relay</b></div>}
 function useLocal(key, fallback) {
@@ -36,8 +35,8 @@ function useLocal(key, fallback) {
   }, [key]);
   return [v, set];
 }
-function FileIcon({kind}){const X=kind==='image'?I.Image:kind==='pdf'?I.FileText:kind==='text'?I.AlignLeft:I.Archive;return <X size={20}/>}
-const PLATFORM_ICONS = { ios: I.Smartphone, android: I.Smartphone, mac: I.Laptop, windows: I.Monitor, linux: I.Monitor, web: I.Globe, local: I.Monitor, unknown: I.HelpCircle };
+function FileIcon({kind}){const X=kind==='image'?I.Image:kind==='pdf'?I.FileText:kind==='text'?I.FileCode:I.FileArchive;return <X size={20}/>}
+const PLATFORM_ICONS = { ios: I.Smartphone, android: I.Smartphone, mac: I.Laptop, windows: I.Monitor, linux: I.Terminal, web: I.Globe, local: I.Cpu, unknown: I.HardDrive };
 const PLATFORM_COLORS = { ios: 'var(--blue)', android: 'var(--green)', mac: 'var(--purple)', windows: 'var(--amber)', linux: 'var(--coral)', web: 'var(--muted)', local: 'var(--amber)', unknown: 'var(--muted)' };
 const PLATFORM_NAMES = { ios: 'iPhone', android: 'Android', mac: 'Mac', windows: 'Windows PC', linux: 'Linux PC', web: 'Web Browser', local: 'This Device', unknown: 'Device' };
 function getDeviceName(item) {
@@ -54,10 +53,10 @@ function DeviceIcon({ platform, icon, size = 11 }) {
   return <PIcon size={size} style={{ color, flexShrink: 0 }} />;
 }
 const isImage = x => {
-  const mime = x.mime || '';
-  const name = x.name || '';
-  const type = x.kind || x.type || '';
-  return type === 'image' || mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|heic|svg)$/i.test(name);
+  const mime = (x?.mime || '').toLowerCase();
+  const name = (x?.name || '').toLowerCase();
+  const type = (x?.kind || x?.type || '').toLowerCase();
+  return type === 'image' || mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|heic|heif|svg|bmp|ico|tiff?)$/i.test(name);
 };
 const isVideo = x => {
   const mime = x.mime || '';
@@ -95,10 +94,10 @@ function App(){
  const [devices,setDevices]=useState([]);
  const [socketId,setSocketId]=useState(null);
  const [drag,setDrag]=useState(false);
- const [serverInfo,setServerInfo]=useState(null);
-  const [showLibraryFilter,setShowLibraryFilter]=useState(false);
+  const [serverInfo,setServerInfo]=useState(null);
   const [previewFile, setPreviewFile] = useState(null);
-  const picker=useRef(),composer=useRef(),socketRef=useRef(),bellDropdownRef=useRef(),libraryFilterRef=useRef();
+  const [uploadState, setUploadState] = useState({ isOpen: false, minimized: false, files: [] });
+  const picker=useRef(),composer=useRef(),socketRef=useRef(),bellDropdownRef=useRef();
   const notificationsRef=useRef(notifications);
   useEffect(()=>{notificationsRef.current=notifications},[notifications]);
   const triggerNotification = (title, body, type) => {
@@ -135,7 +134,7 @@ function App(){
    switch (type) {
      case 'text': return <I.Clipboard size={14}/>;
      case 'link': return <I.Link2 size={14}/>;
-     case 'note': return <I.NotebookPen size={14}/>;
+     case 'note': return <I.StickyNote size={14}/>;
      case 'file': return <I.FileText size={14}/>;
      case 'device': return <I.Smartphone size={14}/>;
      default: return <I.Info size={14}/>;
@@ -150,9 +149,6 @@ function App(){
           setShowBellDropdown(false);
         }
       }
-      if (showLibraryFilter && libraryFilterRef.current && !libraryFilterRef.current.contains(e.target)) {
-        setShowLibraryFilter(false);
-      }
     };
     document.addEventListener('mousedown', handleOutsideClick);
     document.addEventListener('touchstart', handleOutsideClick);
@@ -160,7 +156,7 @@ function App(){
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('touchstart', handleOutsideClick);
     };
-  }, [showBellDropdown, showLibraryFilter]);
+  }, [showBellDropdown]);
 
    useEffect(()=>{fetch(`/api/info?clientPort=${window.location.port}`).then(r=>r.json()).then(info=>setServerInfo(info)).catch(()=>{})},[]);
    useEffect(()=>{
@@ -220,7 +216,13 @@ function App(){
     return ()=>{socket.disconnect()};
    },[]);
    useEffect(()=>{const fn=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();document.querySelector('.search input')?.focus()}};addEventListener('keydown',fn);return()=>removeEventListener('keydown',fn)},[]);
-   useEffect(()=>{document.documentElement.classList.toggle('no-scrollbar',homeTab==='History');return()=>document.documentElement.classList.remove('no-scrollbar')},[homeTab]);
+   useEffect(()=>{document.documentElement.classList.toggle('no-scrollbar',homeTab==='Media');return()=>document.documentElement.classList.remove('no-scrollbar')},[homeTab]);
+   useEffect(() => {
+     const wrapper = document.querySelector('.home-content-wrapper');
+     if (wrapper) {
+       wrapper.scrollTop = 0;
+     }
+   }, [active, homeTab, contentFilter]);
    useEffect(() => {
     if (theme !== 'system') return;
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -272,18 +274,70 @@ function App(){
     const cancelDelete=useCallback(()=>setConfirmDeleteIds(null),[]);
     const confirmDelete=useCallback(async()=>{
       const ids=confirmDeleteIds||[];
+      if (!ids.length) return;
       setConfirmDeleteIds(null);
+      let successCount = 0;
       for(const id of ids){
-        try { await fetch(`/api/history/${id}`,{method:'DELETE'}); } catch { show('Failed to delete'); return; }
+        try {
+          const res = await fetch(`/api/history/${id}`,{method:'DELETE'});
+          if (res.ok) successCount++;
+        } catch {
+          show('Failed to delete item');
+        }
       }
-      setTransfers(prev=>{
-        const set=new Set(ids);
-        return prev.filter(x=>!set.has(x.id));
-      });
-      if (previewFile && ids.includes(previewFile.id)) setPreviewFile(null);
-      show(`${ids.length>1?ids.length+' items':'Item'} deleted`);
-    },[confirmDeleteIds]);
+      if (successCount > 0) {
+        setTransfers(prev=>{
+          const set=new Set(ids);
+          return prev.filter(x=>!set.has(x.id));
+        });
+        if (previewFile && ids.includes(previewFile.id)) setPreviewFile(null);
+        show(`${ids.length>1?ids.length+' items':'Item'} deleted`);
+      }
+    },[confirmDeleteIds, previewFile, show]);
     const closePreview=useCallback(()=>setPreviewFile(null),[]);
+
+    const downloadFile = useCallback(async (item, e) => {
+      if (e) {
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        if (typeof e.stopPropagation === 'function') e.stopPropagation();
+      }
+      if (!item || !item.id) return;
+      const downloadUrl = `/api/download/${item.id}`;
+      const fileName = item.name || 'file';
+
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isMobile && navigator.share && navigator.canShare) {
+        try {
+          show('Preparing file...');
+          const response = await fetch(downloadUrl);
+          if (response.ok) {
+            const blob = await response.blob();
+            const mimeType = item.mime || blob.type || 'application/octet-stream';
+            const file = new File([blob], fileName, { type: mimeType });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                files: [file],
+                title: fileName,
+              });
+              show('Saved / Shared!');
+              return;
+            }
+          }
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+          console.warn('Native share failed, falling back to browser download link:', err);
+        }
+      }
+
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }, [show]);
 
     const copyFileToClipboard = async (item) => {
       const isImg = isImage(item);
@@ -390,20 +444,133 @@ function App(){
       const downloadUrl = window.location.origin + `/api/download/${item.id}`;
       handleCopy(downloadUrl, 'Download link copied to clipboard!');
     };
-    const addFiles=async list=>{const form=new FormData();[...list].forEach(f=>form.append('files',f));show(`Uploading ${list.length} file${list.length>1?'s':''}...`);try{await fetch('/api/upload',{method:'POST',body:form});show(`${list.length} file${list.length>1?'s':''} stored on this PC`)}catch{show('Upload failed — check the server connection')}};
+    const addFiles = useCallback(async (list) => {
+      if (!list || !list.length) return;
+      const storedName = localStorage.getItem('relay-profile-name') || '';
+
+      const initialFiles = [...list].map((f, i) => ({
+        id: `up-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+        file: f,
+        name: f.name || 'file',
+        size: f.size || 0,
+        loaded: 0,
+        progress: 0,
+        status: 'uploading',
+        error: null,
+        xhr: null
+      }));
+
+      setUploadState({
+        isOpen: true,
+        minimized: false,
+        files: initialFiles
+      });
+
+      show(`Uploading ${initialFiles.length} file${initialFiles.length > 1 ? 's' : ''}...`);
+
+      let completedCount = 0;
+      let failedCount = 0;
+
+      const uploadPromises = initialFiles.map(fileItem => {
+        return new Promise((resolve) => {
+          const xhr = new XMLHttpRequest();
+          fileItem.xhr = xhr;
+          const form = new FormData();
+          if (storedName) form.append('senderName', storedName);
+          form.append('files', fileItem.file);
+
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+              const loaded = e.loaded;
+              const pct = Math.min(99, Math.round((e.loaded / e.total) * 100));
+              setUploadState(prev => ({
+                ...prev,
+                files: prev.files.map(item => item.id === fileItem.id ? { ...item, loaded, progress: pct } : item)
+              }));
+            }
+          });
+
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              completedCount++;
+              setUploadState(prev => ({
+                ...prev,
+                files: prev.files.map(item => item.id === fileItem.id ? { ...item, loaded: fileItem.size, progress: 100, status: 'complete' } : item)
+              }));
+              resolve({ ok: true });
+            } else {
+              failedCount++;
+              let errMsg = `HTTP ${xhr.status}`;
+              try { errMsg = JSON.parse(xhr.responseText).error || errMsg; } catch {}
+              setUploadState(prev => ({
+                ...prev,
+                files: prev.files.map(item => item.id === fileItem.id ? { ...item, status: 'error', error: errMsg } : item)
+              }));
+              resolve({ ok: false, error: errMsg });
+            }
+          });
+
+          xhr.addEventListener('error', () => {
+            failedCount++;
+            setUploadState(prev => ({
+              ...prev,
+              files: prev.files.map(item => item.id === fileItem.id ? { ...item, status: 'error', error: 'Network error' } : item)
+            }));
+            resolve({ ok: false, error: 'Network error' });
+          });
+
+          xhr.addEventListener('abort', () => {
+            failedCount++;
+            setUploadState(prev => ({
+              ...prev,
+              files: prev.files.map(item => item.id === fileItem.id ? { ...item, status: 'error', error: 'Cancelled' } : item)
+            }));
+            resolve({ ok: false, error: 'Cancelled' });
+          });
+
+          xhr.open('POST', '/api/upload');
+          xhr.send(form);
+        });
+      });
+
+      await Promise.all(uploadPromises);
+
+      if (failedCount === 0) {
+        show(`${initialFiles.length} file${initialFiles.length > 1 ? 's' : ''} stored on this PC`);
+      } else if (completedCount > 0) {
+        show(`${completedCount} uploaded, ${failedCount} failed`);
+      } else {
+        show(`Upload failed for all files`);
+      }
+    }, [show]);
+
+    useEffect(() => {
+      const handlePaste = (e) => {
+        if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length > 0) {
+          const activeEl = document.activeElement;
+          if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') && activeEl.type === 'text') {
+            return;
+          }
+          e.preventDefault();
+          addFiles(e.clipboardData.files);
+        }
+      };
+      window.addEventListener('paste', handlePaste);
+      return () => window.removeEventListener('paste', handlePaste);
+    }, [addFiles]);
    const clipboardCount=useMemo(()=>transfers.filter(x=>x.type==='text').length,[transfers]);
    const filtered=useMemo(()=>{
+    const mediaTransfers = transfers.filter(x => x.type !== 'note');
     const q=query.trim().toLowerCase();
-    const searchFiltered = q ? transfers.filter(x=>{
+    const searchFiltered = q ? mediaTransfers.filter(x=>{
       const matchName = x.name?.toLowerCase().includes(q);
       const matchContent = x.content?.toLowerCase().includes(q);
       return matchName || matchContent;
-    }) : transfers;
+    }) : mediaTransfers;
     if(contentFilter==='all')return searchFiltered;
     if(contentFilter==='files')return searchFiltered.filter(x=>(x.type==='file'||(!x.type&&x.path)) && !isImage(x) && !isVideo(x));
     if(contentFilter==='clipboard')return searchFiltered.filter(x=>x.type==='text');
     if(contentFilter==='links')return searchFiltered.filter(x=>x.type==='link');
-    if(contentFilter==='notes')return searchFiltered.filter(x=>x.type==='note');
     if(contentFilter==='media')return searchFiltered.filter(x=>{
       const type=x.kind||x.type||'';
       const mime=x.mime||'';
@@ -413,53 +580,58 @@ function App(){
    },[transfers,query,contentFilter]);
 
   return <div className={isDark ? 'app dark' : 'app'}>
-   <main>
+   <main onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);addFiles(e.dataTransfer.files)}} data-drag={drag}>
     <header>
-     <div className="header-logo"><Logo/></div>
-     <div className="search"><I.Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search everything..."/><kbd>⌘ K</kbd></div>
-      <div className="head-actions">
-        <button className="theme-btn" onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button>
-        <div className="bell-container">
-          <button className="bell-btn" onClick={() => {
-            setShowBellDropdown(!showBellDropdown);
-            setNotificationsList(prev => prev.map(n => ({ ...n, read: true })));
-          }} aria-label="Notifications">
-            <I.Bell size={18}/>
-            {notificationsList.some(n => !n.read) && <span className="bell-badge"/>}
+      <div className="header-inner">
+        <div className="header-logo"><Logo/></div>
+        <div className="search"><I.Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search everything..."/><kbd>⌘ K</kbd></div>
+        <div className="head-actions">
+          <button className="header-pair-btn" onClick={() => setModal(prev => prev === 'help' ? null : 'help')} title="QR Connect" aria-label="QR Connect">
+            <I.QrCode size={18}/>
           </button>
-          {showBellDropdown && (
-            <div className="bell-dropdown" ref={bellDropdownRef}>
-              <div className="bell-dropdown-header">
-                <h3>Notifications</h3>
-                {notificationsList.length > 0 && (
-                  <button onClick={() => setNotificationsList([])} className="clear-all-btn">
-                    Clear all
-                  </button>
-                )}
-              </div>
-              <div className="bell-dropdown-content">
-                {notificationsList.length > 0 ? (
-                  notificationsList.map(n => (
-                    <div key={n.id} className="notification-item">
-                      <span className={`notification-icon ${n.type || 'info'}`}>
-                        {getNotificationIcon(n.type)}
-                      </span>
-                      <div className="notification-text">
-                        <b>{n.title}</b>
-                        <p>{n.body}</p>
-                        <small>{formatTime(n.time)}</small>
+          <button className="theme-btn" onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button>
+          <div className="bell-container">
+            <button className="bell-btn" onClick={() => {
+              setShowBellDropdown(!showBellDropdown);
+              setNotificationsList(prev => prev.map(n => ({ ...n, read: true })));
+            }} aria-label="Notifications">
+              <I.Bell size={18}/>
+              {notificationsList.some(n => !n.read) && <span className="bell-badge"/>}
+            </button>
+            {showBellDropdown && (
+              <div className="bell-dropdown" ref={bellDropdownRef}>
+                <div className="bell-dropdown-header">
+                  <h3>Notifications</h3>
+                  {notificationsList.length > 0 && (
+                    <button onClick={() => setNotificationsList([])} className="clear-all-btn">
+                      Clear all
+                    </button>
+                  )}
+                </div>
+                <div className="bell-dropdown-content">
+                  {notificationsList.length > 0 ? (
+                    notificationsList.map(n => (
+                      <div key={n.id} className="notification-item">
+                        <span className={`notification-icon ${n.type || 'info'}`}>
+                          {getNotificationIcon(n.type)}
+                        </span>
+                        <div className="notification-text">
+                          <b>{n.title}</b>
+                          <p>{n.body}</p>
+                          <small>{formatTime(n.time)}</small>
+                        </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="bell-empty">
+                      <I.BellOff size={22} />
+                      <p>No new notifications</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="bell-empty">
-                    <I.BellOff size={22} />
-                    <p>No new notifications</p>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </header>
@@ -467,47 +639,6 @@ function App(){
       {active === 'Home' ? (
         <div className="home-layout">
           <div className="home-main">
-            <section className="welcome">
-              <div>
-                <p className="eyebrow">LOCAL NETWORK · SECURE</p>
-                <h1>
-                  {homeTab === 'Dashboard' 
-                    ? (serverInfo ? `Welcome to ${serverInfo.name}` : 'Welcome back') 
-                    : 'History'}
-                </h1>
-                <p>
-                  {homeTab === 'Dashboard' 
-                    ? 'Everything is connected and ready to share.' 
-                    : 'Your history stays private on this network.'}
-                </p>
-              </div>
-            </section>
-            <section className="share-card" onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);addFiles(e.dataTransfer.files)}} data-drag={drag}>
-              <div className="share-copy"><span className="send-icon"><I.Send size={24}/></span><div><h2>Send something</h2><p>Drop files here or choose what you want to share.</p></div></div>
-              <div className="share-actions">
-                 <button className="primary" onClick={()=>picker.current.click()}><I.Plus size={18}/> Choose files</button>
-                 <button onClick={()=>setModal('write')}><I.NotebookPen size={18}/> Notes</button>
-                 <button onClick={()=>setModal('link')}><I.Link2 size={18}/> Share link</button>
-              </div>
-            </section>
-            <div className="home-toggle-container">
-              <div className="home-toggle">
-                <button 
-                  className={homeTab === 'Dashboard' ? 'active' : ''} 
-                  onClick={() => setHomeTab('Dashboard')}
-                >
-                  <I.LayoutDashboard size={15} />
-                  <span>Dashboard</span>
-                </button>
-                <button 
-                  className={homeTab === 'History' ? 'active' : ''} 
-                  onClick={() => setHomeTab('History')}
-                >
-                  <I.History size={15} />
-                  <span>History</span>
-                </button>
-              </div>
-            </div>
             <div className="home-content-wrapper">
               <div className="home-tab-content">
                 {homeTab === 'Dashboard' ? <Home /> : <Library />}
@@ -518,52 +649,244 @@ function App(){
       ) : null}
     </div>
    </main>
-   <input hidden multiple ref={picker} type="file" onChange={e=>addFiles(e.target.files)}/>
+    <input
+      ref={picker}
+      type="file"
+      multiple
+      style={{ opacity: 0, position: 'fixed', pointerEvents: 'none', top: -100, left: -100, width: 1, height: 1 }}
+      onChange={e => {
+        if (e.target.files && e.target.files.length > 0) {
+          addFiles(e.target.files);
+        }
+        e.target.value = '';
+      }}
+    />
      <div className="dock">
       <div className="dock-group">
-        <button
-          className={`dock-item ${active==='Home'?'active':''}`}
-          onClick={()=>setActive('Home')}
-          data-label="Home"
-        >
-          <I.Home size={20}/>
-        </button>
-        <button
-          className={`dock-item ${modal==='devices'?'active':''}`}
-          onClick={()=>setModal('devices')}
-          data-label="Devices"
-        >
-          <I.Smartphone size={20}/>
-          {devices.filter(d => d.id !== socketId).length > 0 && (
-            <span className="dock-badge">{devices.filter(d => d.id !== socketId).length}</span>
-          )}
-        </button>
+        <div className="dock-toggle">
+          <button
+            className={`dock-toggle-item ${homeTab === 'Dashboard' ? 'active' : ''}`}
+            onClick={() => setHomeTab('Dashboard')}
+            data-label="Dashboard"
+            aria-label="Dashboard"
+          >
+            <I.LayoutDashboard size={18} />
+          </button>
+          <button
+            className={`dock-toggle-item ${homeTab === 'Media' ? 'active' : ''}`}
+            onClick={() => setHomeTab('Media')}
+            data-label="Media"
+            aria-label="Media"
+          >
+            <I.Images size={18} />
+          </button>
+        </div>
+        <div className="dock-divider" />
+        <div className="quick-add-wrapper">
+          {modal === 'add-file' && <>
+            <div className="quick-add-backdrop" onClick={() => setModal(null)} />
+            <QuickAddPopover />
+          </>}
+          <button
+            className={`dock-item ${modal==='add-file'?'active':''}`}
+            onClick={()=>setModal(prev=>prev==='add-file'?null:'add-file')}
+            data-label="Add"
+            aria-label="Add item"
+          >
+            <I.Plus size={20}/>
+          </button>
+        </div>
         <div className="dock-divider" />
         <button
           className={`dock-item ${modal==='settings'?'active':''}`}
-          onClick={()=>setModal('settings')}
+          onClick={()=>setModal(prev=>prev==='settings'?null:'settings')}
           data-label="Settings"
+          aria-label="Settings"
         >
           <I.Settings size={20}/>
         </button>
-        <button
-          className={`dock-item ${modal==='help'?'active':''}`}
-          onClick={()=>setModal('help')}
-          data-label="Help"
-        >
-          <I.QrCode size={20}/>
-        </button>
       </div>
      </div>
-   {modal&&<Modal/>}{useMemo(()=>previewFile?<FilePreviewModal item={previewFile} onClose={closePreview} onDelete={requestDelete}/>:null,[previewFile])}<div className="toast-stack">{toastQueue.map(t=><div className="toast" key={t.id}><I.CheckCircle2 size={18}/>{t.text}</div>)}</div>
+    {modal&&modal!=='add-file'&&<Modal/>}{confirmDeleteIds&&<ConfirmDeleteModal ids={confirmDeleteIds} items={transfers} onConfirm={confirmDelete} onCancel={cancelDelete}/>}{useMemo(()=>previewFile?<FilePreviewModal item={previewFile} onClose={closePreview} onDelete={requestDelete} onDownload={downloadFile}/>:null,[previewFile, downloadFile])}<UploadProgressModal state={uploadState} setState={setUploadState}/><div className="toast-stack">{toastQueue.map(t=><div className="toast" key={t.id}><I.CheckCircle2 size={18}/>{t.text}</div>)}</div>
   </div>
 
-  function FilePreviewModal({ item, onClose, onDelete }) {
+  function ConfirmDeleteModal({ ids, items, onConfirm, onCancel }) {
+    if (!ids || !ids.length) return null;
+    const count = ids.length;
+    const targetItem = count === 1 && items ? items.find(x => x.id === ids[0]) : null;
+    const itemName = targetItem ? targetItem.name : null;
+
+    return (
+      <div className="overlay" onMouseDown={e => e.target === e.currentTarget && onCancel()}>
+        <div className="modal" style={{ maxWidth: '380px' }}>
+          <button className="close" onClick={onCancel} title="Close"><I.X size={19} /></button>
+          <div className="modal-icon" style={{ background: 'rgba(229, 62, 62, 0.12)', color: '#e53e3e' }}>
+            <I.Trash2 size={24} />
+          </div>
+          <h2>{count > 1 ? `Delete ${count} items?` : (itemName ? `Delete "${itemName.length > 30 ? itemName.slice(0, 30) + '...' : itemName}"?` : 'Delete item?')}</h2>
+          <p style={{ marginTop: '8px', marginBottom: '20px' }}>This item will be permanently removed from your history and database on all connected devices.</p>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              onClick={onCancel}
+              style={{
+                flex: 1,
+                padding: '10px 16px',
+                borderRadius: '9px',
+                border: '1px solid var(--line)',
+                background: 'var(--soft)',
+                color: 'var(--ink)',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              className="danger"
+              style={{
+                flex: 1,
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function UploadProgressModal({ state, setState }) {
+    if (!state.isOpen || !state.files || !state.files.length) return null;
+
+    const totalFiles = state.files.length;
+    const completedFiles = state.files.filter(f => f.status === 'complete').length;
+    const failedFiles = state.files.filter(f => f.status === 'error').length;
+    const isUploading = state.files.some(f => f.status === 'uploading');
+
+    const totalBytes = state.files.reduce((sum, f) => sum + (f.size || 0), 0);
+    const loadedBytes = state.files.reduce((sum, f) => sum + (f.loaded || 0), 0);
+    const overallProgress = totalBytes > 0 ? Math.min(100, Math.round((loadedBytes / totalBytes) * 100)) : 0;
+
+    const cancelFile = (fileId) => {
+      const target = state.files.find(f => f.id === fileId);
+      if (target && target.xhr && target.status === 'uploading') {
+        target.xhr.abort();
+      }
+    };
+
+    const close = () => {
+      setState(prev => ({ ...prev, isOpen: false }));
+    };
+
+    const toggleMinimize = () => {
+      setState(prev => ({ ...prev, minimized: !prev.minimized }));
+    };
+
+    return (
+      <div className={`upload-progress-card ${state.minimized ? 'minimized' : ''}`}>
+        <div className="up-card-header" onClick={toggleMinimize}>
+          <div className="up-header-title">
+            <div className={`up-icon-badge ${isUploading ? 'pulsing' : 'done'}`}>
+              {isUploading ? <I.Upload className="up-spin-arrow" size={16} /> : <I.CheckCircle2 size={16} />}
+            </div>
+            <div className="up-title-text">
+              <b>{isUploading ? `Uploading ${totalFiles} ${totalFiles > 1 ? 'files' : 'file'}` : `Upload Complete (${completedFiles}/${totalFiles})`}</b>
+              <small>
+                {isUploading
+                  ? `${completedFiles} of ${totalFiles} complete · ${formatSize(loadedBytes)} / ${formatSize(totalBytes)}`
+                  : `${completedFiles} saved to this device${failedFiles > 0 ? ` · ${failedFiles} failed` : ''}`
+                }
+              </small>
+            </div>
+          </div>
+          <div className="up-header-actions" onClick={e => e.stopPropagation()}>
+            <button className="up-action-btn" onClick={toggleMinimize} title={state.minimized ? 'Expand' : 'Minimize'}>
+              {state.minimized ? <I.ChevronUp size={16} /> : <I.ChevronDown size={16} />}
+            </button>
+            <button className="up-action-btn" onClick={close} title="Close">
+              <I.X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {!state.minimized && (
+          <>
+            <div className="up-overall-progress">
+              <div className="up-progress-bar-bg">
+                <div
+                  className={`up-progress-bar-fill ${isUploading ? 'active' : 'complete'}`}
+                  style={{ width: `${overallProgress}%` }}
+                />
+              </div>
+              <div className="up-progress-meta">
+                <span>{overallProgress}%</span>
+                <span>{formatSize(loadedBytes)} / {formatSize(totalBytes)}</span>
+              </div>
+            </div>
+
+            <div className="up-file-list">
+              {state.files.map(f => {
+                const isImg = isImage(f);
+                const isVid = isVideo(f);
+                const isAudio = (f.file?.type || '').startsWith('audio/') || /\.(mp3|wav|ogg|flac|m4a)$/i.test(f.name);
+                const isDoc = /\.(pdf|doc|docx|txt|md|csv|xlsx|json)$/i.test(f.name);
+
+                const FIcon = isImg ? I.Image : isVid ? I.Film : isAudio ? I.Music : isDoc ? I.FileText : I.File;
+                const iconClass = isImg ? 'mint' : isVid ? 'rose' : isAudio ? 'amber' : isDoc ? 'blue' : 'violet';
+
+                return (
+                  <div key={f.id} className={`up-file-item ${f.status}`}>
+                    <div className={`up-file-icon ${iconClass}`}>
+                      <FIcon size={16} />
+                    </div>
+                    <div className="up-file-info">
+                      <div className="up-file-row">
+                        <span className="up-file-name" title={f.name}>{f.name}</span>
+                        <span className="up-file-status-tag">
+                          {f.status === 'uploading' && (
+                            <span className="up-tag-uploading">
+                              <I.Loader2 className="spin" size={11} /> {f.progress}%
+                            </span>
+                          )}
+                          {f.status === 'complete' && <span className="up-tag-complete"><I.Check size={12} /> Done</span>}
+                          {f.status === 'error' && <span className="up-tag-error"><I.AlertCircle size={12} /> {f.error || 'Failed'}</span>}
+                        </span>
+                      </div>
+                      <div className="up-file-progress-bar">
+                        <div
+                          className={`up-file-progress-fill ${f.status}`}
+                          style={{ width: `${f.progress}%` }}
+                        />
+                      </div>
+                      <div className="up-file-sub">
+                        <small>{formatSize(f.loaded)} / {formatSize(f.size)}</small>
+                        {f.status === 'uploading' && (
+                          <button className="up-cancel-file" onClick={() => cancelFile(f.id)} title="Cancel upload">
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  function FilePreviewModal({ item, onClose, onDelete, onDownload }) {
     const [textContent, setTextContent] = useState(null);
     const [textLoading, setTextLoading] = useState(false);
     const [editingNote, setEditingNote] = useState(false);
     const [noteDraft, setNoteDraft] = useState('');
     const [clContent, setClContent] = useState(item.content);
+    const [imgError, setImgError] = useState(false);
     const noteEditRef = useRef(null);
 
     const isImg = isImage(item);
@@ -611,7 +934,7 @@ function App(){
       if (isPdf) return I.FileText;
       if (isTxt) return I.Code;
       if (isTextType) return I.Clipboard;
-      if (isNote) return I.NotebookPen;
+      if (isNote) return I.StickyNote;
       if (isLink) return I.Link2;
       return I.File;
     };
@@ -644,7 +967,20 @@ function App(){
 
     const renderContent = () => {
       if (isImg && isFile) {
-        return <img src={`/api/preview/${item.id}`} alt={item.name} />;
+        const isHeic = item.name && /\.(heic|heif)$/i.test(item.name);
+        if (imgError) {
+          return (
+            <div className="file-preview-fallback">
+              <span className={`file-preview-fallback-icon ${iconColor}`}><I.Image size={32} /></span>
+              <h3>{item.name}</h3>
+              <p>{isHeic ? 'HEIC image format uploaded from iPhone. Non-Apple web browsers cannot render HEIC directly.' : 'Unable to display image preview.'}</p>
+              <a className="primary" href={`/api/download/${item.id}`} download={item.name || true} target="_blank" rel="noopener noreferrer" onClick={e => onDownload ? onDownload(item, e) : null} style={{ textDecoration: 'none' }}>
+                <I.Download size={14} /> Download Image
+              </a>
+            </div>
+          );
+        }
+        return <img src={`/api/preview/${item.id}`} alt={item.name} onError={() => setImgError(true)} />;
       }
       if (isVid && isFile) {
         return <video src={`/api/preview/${item.id}`} controls autoPlay playsInline />;
@@ -668,7 +1004,7 @@ function App(){
         }
         const clItems = checklistItems(clContent);
         if (clItems.some(Boolean)) {
-          return <div className="file-preview-checklist">{(clContent || '').split('\n').map((line, i) => { const cl = clItems[i]; if (!cl) return <div key={i} className="file-preview-text-line">{line || '\u00A0'}</div>; return <label key={i} className={`checklist-row ${cl.checked?'done':''}`} onClick={() => { const lines = (clContent || '').split('\n'); lines[i] = lines[i].replace(/^(- ?\[)[ xX]( ?\])/, (_, p1, p2) => `${p1}${cl.checked ? ' ' : 'x'}${p2}`); const updated = lines.join('\n'); setClContent(updated); fetch(`/api/history/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: updated }) }); }}><span className="checklist-dot">{cl.checked?<I.CheckCircle2 size={20}/>:<I.Circle size={20}/>}</span><span className="checklist-text">{cl.text || '\u00A0'}</span></label>; })}</div>;
+          return <div className="file-preview-checklist">{(clContent || '').split('\n').map((line, i) => { const cl = clItems[i]; if (!cl) return <div key={i} className="file-preview-text-line">{line || '\u00A0'}</div>; return <label key={i} className={`checklist-row ${cl.checked?'done':''}`} onClick={() => { const lines = (clContent || '').split('\n'); lines[i] = lines[i].replace(/^(- ?\[)[ xX]( ?\])/, (_, p1, p2) => `${p1}${cl.checked ? ' ' : 'x'}${p2}`); const updated = lines.join('\n'); setClContent(updated); setTransfers(prev => prev.map(t => t.id === item.id ? { ...t, content: updated } : t)); fetch(`/api/history/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: updated }) }); }}><span className="checklist-dot">{cl.checked?<I.CheckCircle2 size={20}/>:<I.Circle size={20}/>}</span><span className="checklist-text">{cl.text || '\u00A0'}</span></label>; })}</div>;
         }
         return <div className="file-preview-text-content">{clContent}</div>;
       }
@@ -690,7 +1026,7 @@ function App(){
           <h3>{item.name || 'File'}</h3>
           <p>This file type cannot be previewed. Download to view it.</p>
           {isFile && item.id && (
-            <a className="primary" href={`/api/download/${item.id}`} style={{ textDecoration: 'none' }}>
+            <a className="primary" href={`/api/download/${item.id}`} download={item.name || true} target="_blank" rel="noopener noreferrer" onClick={e => onDownload ? onDownload(item, e) : null} style={{ textDecoration: 'none' }}>
               <I.Download size={14} /> Download
             </a>
           )}
@@ -713,7 +1049,7 @@ function App(){
               {isFile && item.id && (
                 <>
                   <button onClick={() => copyFileToClipboard(item)} title="Copy"><I.Copy size={15} /></button>
-                  <a href={`/api/download/${item.id}`} title="Download"><I.Download size={15} /></a>
+                  <a href={`/api/download/${item.id}`} download={item.name || true} target="_blank" rel="noopener noreferrer" onClick={e => onDownload ? onDownload(item, e) : null} title="Download"><I.Download size={15} /></a>
                   <button onClick={() => { onDelete(item.id); onClose(); }} title="Delete" style={{ color: '#e53e3e' }}><I.Trash2 size={15} /></button>
                 </>
               )}
@@ -742,12 +1078,14 @@ function App(){
   }
 
   function Home() {
+    const [homeSection, setHomeSection] = useLocal('relay-home-section', 'notes');
+
     const metrics = useMemo(() => {
       const devicesCount = devices.filter(d => d.id !== socketId).length;
       const totalShares = transfers.length;
       const files = transfers.filter(x => x.type === 'file').length;
-      const notes = transfers.filter(x => x.type === 'note' && !x.content?.includes('- [')).length;
-      const checklists = transfers.filter(x => x.type === 'note' && x.content?.includes('- [')).length;
+      const notes = transfers.filter(x => x.type === 'note' && !hasChecklists(x.content)).length;
+      const checklists = transfers.filter(x => x.type === 'note' && hasChecklists(x.content)).length;
       const links = transfers.filter(x => x.type === 'link').length;
       const clipboard = transfers.filter(x => x.type === 'text').length;
       const totalSize = transfers.reduce((acc, x) => acc + (x.size || 0), 0);
@@ -756,11 +1094,19 @@ function App(){
 
     const otherDevices = useMemo(() => devices.filter(d => d.id !== socketId), [devices, socketId]);
 
+    const plainNotes = useMemo(() => {
+      return transfers.filter(x => x.type === 'note' && !hasChecklists(x.content));
+    }, [transfers]);
+
+    const checklistNotes = useMemo(() => {
+      return transfers.filter(x => x.type === 'note' && hasChecklists(x.content));
+    }, [transfers]);
+
     const dist = useMemo(() => {
       const items = [
         { label: 'Files', count: metrics.files, color: '#f59e0b' },
         { label: 'Notes', count: metrics.notes, color: '#10b981' },
-        { label: 'Checklists', count: metrics.checklists, color: '#06b6d4' },
+        { label: 'Checklists', count: metrics.checklists, color: '#10b981' },
         { label: 'Links', count: metrics.links, color: '#ec4899' },
         { label: 'Clipboard', count: metrics.clipboard, color: '#8b5cf6' },
       ];
@@ -771,7 +1117,7 @@ function App(){
     return <div className="dashboard">
       <div className="dashboard-top">
         <div className="dash-card dash-card-devices">
-          <div className="dash-card-header"><I.Smartphone size={18}/><span>Devices Connected</span></div>
+          <div className="dash-card-header"><I.Radio size={18}/><span>Devices Connected</span></div>
           <div className="dash-devices-body">
             <span className="dash-big-num">{metrics.devicesCount}</span>
             <div className="dash-device-list">
@@ -783,7 +1129,7 @@ function App(){
           </div>
         </div>
         <div className="dash-card dash-card-library">
-          <div className="dash-card-header"><I.Layers size={18}/><span>Library</span></div>
+          <div className="dash-card-header"><I.FolderKanban size={18}/><span>Library</span></div>
           <div className="dash-library-body">
             <span className="dash-big-num">{metrics.totalShares}</span>
             <span className="dash-subtitle">total items</span>
@@ -793,11 +1139,157 @@ function App(){
         </div>
       </div>
       <div className="dashboard-stats">
-        <div className="dash-stat"><I.File size={16} color="#f59e0b"/><div className="dash-stat-info"><span className="dash-stat-value">{metrics.files}</span><span className="dash-stat-label">Files</span>{metrics.totalSize > 0 && <span className="dash-stat-extra">{formatSize(metrics.totalSize)}</span>}</div></div>
-        <div className="dash-stat"><I.NotebookPen size={16} color="#10b981"/><div className="dash-stat-info"><span className="dash-stat-value">{metrics.notes}</span><span className="dash-stat-label">Notes</span></div></div>
-        <div className="dash-stat"><I.ListChecks size={16} color="#06b6d4"/><div className="dash-stat-info"><span className="dash-stat-value">{metrics.checklists}</span><span className="dash-stat-label">Checklists</span></div></div>
+        <div className="dash-stat"><I.Files size={16} color="#f59e0b"/><div className="dash-stat-info"><span className="dash-stat-value">{metrics.files}</span><span className="dash-stat-label">Files</span>{metrics.totalSize > 0 && <span className="dash-stat-extra">{formatSize(metrics.totalSize)}</span>}</div></div>
+        <div className="dash-stat" onClick={() => setHomeSection('notes')} style={{ cursor: 'pointer' }}><I.StickyNote size={16} color="#10b981"/><div className="dash-stat-info"><span className="dash-stat-value">{metrics.notes}</span><span className="dash-stat-label">Notes</span></div></div>
+        <div className="dash-stat" onClick={() => setHomeSection('checklists')} style={{ cursor: 'pointer' }}><I.CheckSquare size={16} color="#10b981"/><div className="dash-stat-info"><span className="dash-stat-value">{metrics.checklists}</span><span className="dash-stat-label">Checklists</span></div></div>
         <div className="dash-stat"><I.Link2 size={16} color="#ec4899"/><div className="dash-stat-info"><span className="dash-stat-value">{metrics.links}</span><span className="dash-stat-label">Links</span></div></div>
         <div className="dash-stat"><I.Clipboard size={16} color="#8b5cf6"/><div className="dash-stat-info"><span className="dash-stat-value">{metrics.clipboard}</span><span className="dash-stat-label">Clipboard</span></div></div>
+      </div>
+
+      <div className="dashboard-checklists">
+        <div className="dash-checklists-header">
+          <div className="dash-home-toggle-group">
+            <button
+              className={`dash-home-tab-btn ${homeSection === 'notes' ? 'active' : ''}`}
+              onClick={() => setHomeSection('notes')}
+            >
+              <I.StickyNote size={15} />
+              <span>Notes</span>
+              <span className="dash-count-badge">{plainNotes.length}</span>
+            </button>
+            <button
+              className={`dash-home-tab-btn ${homeSection === 'checklists' ? 'active' : ''}`}
+              onClick={() => setHomeSection('checklists')}
+            >
+              <I.CheckSquare size={15} />
+              <span>Checklists</span>
+              <span className="dash-count-badge">{checklistNotes.length}</span>
+            </button>
+          </div>
+          <button className="dash-add-cl-btn" onClick={() => setModal(homeSection === 'checklists' ? 'checklist' : 'write')} title={homeSection === 'notes' ? 'Create new note' : 'Create new checklist'}>
+            <I.Plus size={14} /> <span>{homeSection === 'notes' ? 'New Note' : 'New Checklist'}</span>
+          </button>
+        </div>
+
+        {homeSection === 'notes' ? (
+          plainNotes.length > 0 ? (
+            <div className="dash-checklists-grid">
+              {plainNotes.map(item => {
+                const lineCount = (item.content || '').split('\n').length;
+                return (
+                  <div key={item.id} className="dash-checklist-card">
+                    <div className="dash-cl-card-header">
+                      <div className="dash-cl-card-title-group" onClick={() => setPreviewFile(item)} title="Click to view/edit note">
+                        <b className="dash-cl-card-title">{item.name || 'Shared Note'}</b>
+                        <span className="dash-cl-progress-pill">{lineCount} {lineCount === 1 ? 'line' : 'lines'}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        <button className="dash-cl-action-btn" onClick={() => handleCopy(item.content, 'Note copied!')} title="Copy note">
+                          <I.Copy size={14} />
+                        </button>
+                        <button className="dash-cl-action-btn" onClick={() => requestDelete(item.id)} title="Delete note" style={{ color: '#e53e3e' }}>
+                          <I.Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="dash-note-preview-body" onClick={() => setPreviewFile(item)} title="Click to view details">
+                      {item.content}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="dash-checklists-empty">
+              <I.StickyNote size={32} color="#10b981" style={{ opacity: 0.5 }} />
+              <p>No plain notes shared yet.</p>
+              <button className="secondary" onClick={() => setModal('write')} style={{ fontSize: '12px', padding: '6px 12px' }}>
+                <I.Plus size={14} /> Create your first note
+              </button>
+            </div>
+          )
+        ) : (
+          checklistNotes.length > 0 ? (
+            <div className="dash-checklists-grid">
+              {checklistNotes.map(item => {
+                const allParsed = checklistItems(item.content);
+                const clItems = allParsed.filter(Boolean);
+                const completedCount = clItems.filter(c => c.checked).length;
+                const totalCount = clItems.length;
+                const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+                return (
+                  <div key={item.id} className="dash-checklist-card">
+                    <div className="dash-cl-card-header">
+                      <div className="dash-cl-card-title-group" onClick={() => setPreviewFile(item)} title="Click to view details">
+                        <b className="dash-cl-card-title">{item.name || 'Checklist'}</b>
+                        <span className="dash-cl-progress-pill">{completedCount}/{totalCount} completed ({progressPct}%)</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        <button className="dash-cl-action-btn" onClick={() => handleCopy(item.content, 'Checklist copied!')} title="Copy checklist">
+                          <I.Copy size={14} />
+                        </button>
+                        <button className="dash-cl-action-btn" onClick={() => requestDelete(item.id)} title="Delete checklist" style={{ color: '#e53e3e' }}>
+                          <I.Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="dash-cl-progress-bar-bg">
+                      <div className="dash-cl-progress-bar-fill" style={{ width: `${progressPct}%` }} />
+                    </div>
+                    <div className="dash-cl-items-list">
+                      {(item.content || '').split('\n').map((line, i) => {
+                        const cl = allParsed[i];
+                        if (!cl) return null;
+                        return (
+                          <label key={i} className={`dash-cl-item-row ${cl.checked ? 'done' : ''}`} onClick={() => {
+                            const lines = (item.content || '').split('\n');
+                            lines[i] = lines[i].replace(/^(- ?\[)[ xX]( ?\])/, (_, p1, p2) => `${p1}${cl.checked ? ' ' : 'x'}${p2}`);
+                            const updated = lines.join('\n');
+                            setTransfers(prev => prev.map(t => t.id === item.id ? { ...t, content: updated } : t));
+                            fetch(`/api/history/${item.id}`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ content: updated })
+                            });
+                          }}>
+                            <span className="dash-cl-dot">
+                              {cl.checked ? <I.CheckCircle2 size={16} color="#10b981" /> : <I.Circle size={16} color="var(--muted)" />}
+                            </span>
+                            <span className="dash-cl-text">{cl.text || ' '}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <form className="dash-cl-add-item" onSubmit={(e) => {
+                      e.preventDefault();
+                      const input = e.target.elements.newItemText;
+                      const val = input.value.trim();
+                      if (!val) return;
+                      const updated = (item.content || '').trim() + `\n- [ ] ${val}`;
+                      setTransfers(prev => prev.map(t => t.id === item.id ? { ...t, content: updated } : t));
+                      fetch(`/api/history/${item.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: updated })
+                      });
+                      input.value = '';
+                    }}>
+                      <input name="newItemText" placeholder="+ Add item..." className="dash-cl-add-input" autoComplete="off" />
+                    </form>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="dash-checklists-empty">
+              <I.CheckSquare size={32} color="#10b981" style={{ opacity: 0.5 }} />
+              <p>No checklists shared yet.</p>
+              <button className="secondary" onClick={() => setModal('checklist')} style={{ fontSize: '12px', padding: '6px 12px' }}>
+                <I.Plus size={14} /> Create your first checklist
+              </button>
+            </div>
+          )
+        )}
       </div>
     </div>;
   }
@@ -825,36 +1317,44 @@ function App(){
     return <section className="library">
       <div className="section-title" ref={titleRef}>
         <div>
-          <h2>History</h2>
-          <p>Your shared history on this network</p>
+          <h2>Media</h2>
+          <p>Your shared media & files on this network</p>
         </div>
         <div className="library-actions-group">
-          <div className="mobile-filter-container" ref={libraryFilterRef}>
-            <button className={`mobile-filter-btn icon-only ${contentFilter !== 'all' ? 'active' : ''}`} onClick={() => setShowLibraryFilter(!showLibraryFilter)} title="Filter library">
-              <I.SlidersHorizontal size={15} />
-              {contentFilter !== 'all' && <span className="filter-active-dot" />}
-            </button>
-            {showLibraryFilter && (
-              <div className="filter-dropdown right-aligned">
-                {filterTabs.map(tab => {
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      className={contentFilter === tab.id ? 'selected' : ''}
-                      onClick={() => {
-                        setContentFilter(tab.id);
-                        setShowLibraryFilter(false);
-                      }}
-                    >
-                      <Icon size={14} />
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+          <div className="media-search-box">
+            <I.Search size={14} className="media-search-icon" />
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search media & files..."
+              className="media-search-input"
+            />
+            {query && (
+              <button className="media-search-clear" onClick={() => setQuery('')} title="Clear search">
+                <I.X size={13} />
+              </button>
             )}
           </div>
+          <div className="desktop-filters-group">
+            {filterTabs.map(tab => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  className={contentFilter === tab.id ? 'selected' : ''}
+                  onClick={(e) => {
+                    setContentFilter(tab.id);
+                    e.currentTarget.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
+                  }}
+                >
+                  <Icon size={14} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           <div className="view-toggle">
             <button className={viewMode==='list'?'selected':''} onClick={()=>setViewMode('list')} title="List view"><I.List size={16}/></button>
             <button className={viewMode==='grid'?'selected':''} onClick={()=>setViewMode('grid')} title="Grid view"><I.LayoutGrid size={16}/></button>
@@ -891,8 +1391,8 @@ function App(){
             <button aria-label="Copy file" onClick={() => copyFileToClipboard(item)} title="Copy file" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center' }}>
               <I.Copy size={16}/>
             </button>
-            <a className="download" href={`/api/download/${item.id}`} aria-label="Download" title="Download file" style={{ display: 'grid', placeItems: 'center' }}>
-              <I.Download size={16}/>
+            <a className="download" href={`/api/download/${item.id}`} download={item.name || true} target="_blank" rel="noopener noreferrer" onClick={(e) => downloadFile(item, e)} aria-label="Download" title="Download file" style={{ display: 'grid', placeItems: 'center' }}>
+              <I.ArrowDownToLine size={16}/>
             </a>
             <button aria-label="Delete file" onClick={() => requestDelete(item.id)} title="Delete file" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: '#e53e3e', display: 'grid', placeItems: 'center' }}>
               <I.Trash2 size={16}/>
@@ -918,7 +1418,23 @@ function App(){
           {cardHeader}
           <div className="card-preview media clickable" onClick={() => setPreviewFile(item)}>
             {isImg ? (
-              <img src={`/api/preview/${item.id}`} alt={item.name} loading="lazy" />
+              <>
+                <img
+                  src={`/api/preview/${item.id}`}
+                  alt={item.name}
+                  loading="lazy"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    if (e.target.nextElementSibling) {
+                      e.target.nextElementSibling.style.display = 'flex';
+                    }
+                  }}
+                />
+                <div className="card-file-fallback" style={{ display: 'none' }}>
+                  <span className="fallback-icon"><FileIcon kind={item.kind || item.type} /></span>
+                  <span className="fallback-ext">{extension}</span>
+                </div>
+              </>
             ) : isVid ? (
               <video
                 src={`/api/preview/${item.id}`}
@@ -996,7 +1512,7 @@ function App(){
         <div className={`transfer-card note mint`} key={item.id}>
           {cardHeader}
           <div className="card-preview content-preview clickable" onClick={() => setPreviewFile(item)}>
-            <span className="preview-icon"><I.NotebookPen size={14}/></span>
+            <span className="preview-icon"><I.StickyNote size={14}/></span>
             <div ref={previewRef} className="preview-text note-body">{hasCL ? clItems.map((cl, i) => cl ? <span key={i} className="cl-preview"><span className="cl-preview-icon">{cl.checked?<I.CheckCircle2 size={12}/>:<I.Circle size={12}/>}</span><span className={`cl-preview-text${cl.checked?' done':''}`}>{cl.text}</span></span> : null) : item.content}</div>
             {(isTruncated || lineCount > 5) && <span className="more-indicator">… more</span>}
           </div>
@@ -1030,8 +1546,8 @@ function App(){
         <button className="download" onClick={() => copyFileToClipboard(x)} title="Copy file" aria-label="Copy file" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center' }}>
           <I.Copy size={18}/>
         </button>
-        <a className="download" href={`/api/download/${x.id}`} aria-label="Download" title="Download file" style={{ display: 'grid', placeItems: 'center' }}>
-          <I.Download size={18}/>
+        <a className="download" href={`/api/download/${x.id}`} download={x.name || true} target="_blank" rel="noopener noreferrer" onClick={(e) => downloadFile(x, e)} aria-label="Download" title="Download file" style={{ display: 'grid', placeItems: 'center' }}>
+          <I.ArrowDownToLine size={18}/>
         </a>
         <button onClick={e => { e.stopPropagation(); requestDelete(x.id); }} title="Delete" aria-label="Delete" style={{ border: 0, background: 'transparent', padding: '4px', cursor: 'pointer', color: '#e53e3e', display: 'grid', placeItems: 'center' }}>
           <I.Trash2 size={18}/>
@@ -1053,13 +1569,51 @@ function App(){
     const label = contentFilter === 'all' ? 'items' : currentFilterLabel.toLowerCase();
     const X = contentFilter === 'clipboard' ? I.Clipboard
             : contentFilter === 'links' ? I.Link2
-            : contentFilter === 'notes' ? I.NotebookPen
+            : contentFilter === 'notes' ? I.StickyNote
             : contentFilter === 'media' ? I.Images
             : contentFilter === 'files' ? I.Files
             : I.History;
     return <div className="empty"><span><X size={28}/></span><h3>No {label} yet</h3><p>Anything you share will appear here and stay on this device.</p></div>
   }
   function Modal(){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&setModal(null)}><div className="modal"><button className="close" onClick={()=>setModal(null)}><I.X size={19}/></button>{modal==='devices'?<DevicesModal/>:modal==='settings'?<SettingsModal/>:modal==='help'?<Pair/>:<Composer/>}</div></div>}
+  function QuickAddPopover() {
+    const triggerPicker = (acceptType) => {
+      setModal(null);
+      setTimeout(() => {
+        if (picker.current) {
+          if (acceptType) {
+            picker.current.accept = acceptType;
+          } else {
+            picker.current.removeAttribute('accept');
+          }
+          picker.current.click();
+        }
+      }, 50);
+    };
+
+    return (
+      <div className="quick-add-popover">
+        <button className="quick-add-item" onClick={() => triggerPicker('image/*')} title="Photos">
+          <span className="quick-add-icon mint"><I.Image size={18}/></span>
+        </button>
+        <button className="quick-add-item" onClick={() => triggerPicker('video/*')} title="Videos">
+          <span className="quick-add-icon blue"><I.Video size={18}/></span>
+        </button>
+        <button className="quick-add-item" onClick={() => triggerPicker(null)} title="Files">
+          <span className="quick-add-icon amber"><I.FolderUp size={18}/></span>
+        </button>
+        <button className="quick-add-item" onClick={() => setModal('write')} title="Notes">
+          <span className="quick-add-icon rose"><I.StickyNote size={18}/></span>
+        </button>
+        <button className="quick-add-item" onClick={() => setModal('checklist')} title="Checklist">
+          <span className="quick-add-icon violet"><I.ListChecks size={18}/></span>
+        </button>
+        <button className="quick-add-item" onClick={() => setModal('link')} title="Links">
+          <span className="quick-add-icon coral"><I.Link2 size={18}/></span>
+        </button>
+      </div>
+    );
+  }
   function DevicesModal() {
     const [renamingId, setRenamingId] = useState(null);
     const [renameValue, setRenameValue] = useState('');
@@ -1153,9 +1707,32 @@ function App(){
   function SettingsModal(){return <div style={{textAlign:'left'}}><Settings theme={theme} setTheme={setTheme} autoAccept={autoAccept} setAutoAccept={setAutoAccept} notifications={notifications} setNotifications={setNotifications} showToast={show}/></div>}
 
   function Pair(){return <><span className="modal-icon"><I.QrCode/></span><h2>Connect your device</h2><p>Keep both devices on the same Wi-Fi, then scan this QR code with your phone or tablet camera.</p>{serverInfo?<img className="real-qr" src={serverInfo.qr} alt={`QR code for ${serverInfo.url}`}/>:<div className="qr"/>}<div className="server-url">{serverInfo?.url||'Starting local server…'}</div><small className="secure"><I.Lock size={13}/> Files stay on this Windows PC · Local network only</small></>}
-  function Composer(){const isWrite=modal==='write';const title=modal==='link'?'Share a link':'Notes';const [isChecklist,setIsChecklist]=useState(false);const titleRef=useRef(null);const send=async()=>{let content,noteName;if(isChecklist){const editor=document.querySelector('.cl-editor');if(!editor)return;const items=[];editor.querySelectorAll('.cl-line-text').forEach(el=>{const t=el.textContent.trim();if(t)items.push(`- [ ] ${t}`)});if(!items.length)return;content=items.join('\n')}else{content=composer.current?.value||'';if(!content.trim())return}noteName=titleRef.current?.value.trim()||'';const type=isWrite?'note':modal;await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,content,name:noteName||undefined})});setModal(null);show(`${title} shared successfully`)};const onClKeyDown=e=>{if(e.key==='Enter'){e.preventDefault();addClLine()}if(e.key==='Backspace'&&!e.target.textContent.trim()){e.preventDefault();const line=e.target.closest('.cl-line');const editor=document.querySelector('.cl-editor');if(!line||!editor||editor.children.length<=1)return;const prev=line.previousElementSibling;editor.removeChild(line);if(prev){const prevText=prev.querySelector('.cl-line-text');prevText?.focus();const range=document.createRange();range.setStart(prevText,prevText.textContent.length);range.collapse(true);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range)}else{const first=editor.querySelector('.cl-line-text');first?.focus()}}};const addClLine=()=>{const el=document.createElement('div');el.className='cl-line';el.innerHTML='<span class="cl-line-dot"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></span><span class="cl-line-text" contentEditable="true"></span>';const editor=document.querySelector('.cl-editor');if(!editor)return;const lastLine=editor.lastElementChild;if(lastLine&&!lastLine.querySelector('.cl-line-remove')){const btn=document.createElement('button');btn.className='cl-line-remove';btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';btn.onclick=()=>{editor.removeChild(lastLine);if(editor.children.length===1)editor.querySelector('.cl-line-remove')?.remove()};lastLine.appendChild(btn)}editor.appendChild(el);const textSpan=el.querySelector('.cl-line-text');textSpan.focus();textSpan.addEventListener('keydown',onClKeyDown)};const initCl=()=>{setIsChecklist(true);setTimeout(()=>{const editor=document.querySelector('.cl-editor');if(!editor)return;editor.innerHTML='';const el=document.createElement('div');el.className='cl-line';el.innerHTML='<span class="cl-line-dot"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></span><span class="cl-line-text" contentEditable="true"></span>';editor.appendChild(el);const textSpan=el.querySelector('.cl-line-text');textSpan.addEventListener('keydown',onClKeyDown);textSpan.focus()},10)};return <><span className="modal-icon">{modal==='link'?<I.Link2/>:<I.NotebookPen/>}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal!=='link'&&<div style={{display:'flex',gap:'6px',marginBottom:'12px'}}><button className={`pair ${!isChecklist?'active':''}`} style={{flex:1,justifyContent:'center',fontSize:12,padding:'8px',background:isChecklist?'var(--panel)':'var(--green)',color:isChecklist?'var(--ink)':'var(--panel)',border:isChecklist?'1px solid var(--line)':'0'}} onClick={()=>{setIsChecklist(false)}}><I.NotebookPen size={13}/> Note</button><button className={`pair ${isChecklist?'active':''}`} style={{flex:1,justifyContent:'center',fontSize:12,padding:'8px',background:isChecklist?'var(--green)':'var(--panel)',color:isChecklist?'var(--panel)':'var(--ink)',border:isChecklist?'0':'1px solid var(--line)'}} onClick={initCl}><I.ListChecks size={13}/> Checklist</button></div>}{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<><input ref={titleRef} className="cl-title-input" placeholder="Title (optional)" autoFocus={!isChecklist}/>{isChecklist?<div className="cl-editor"></div>:<textarea ref={composer} className="composer" rows="5" placeholder="Type note..." style={{marginTop:'8px'}}/>}</>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
+  function Composer(){const isWrite=modal==='write'||modal==='checklist';const isInitialCL=modal==='checklist';const [isChecklist,setIsChecklist]=useState(isInitialCL);const title=modal==='link'?'Share a link':(isChecklist?'Checklist':'Notes');const titleRef=useRef(null);useEffect(()=>{if(modal==='checklist'){initCl()}},[modal]);const send=async()=>{let content,noteName;if(isChecklist){const editor=document.querySelector('.cl-editor');if(!editor)return;const items=[];editor.querySelectorAll('.cl-line-text').forEach(el=>{const t=el.textContent.trim();if(t)items.push(`- [ ] ${t}`)});if(!items.length)return;content=items.join('\n')}else{content=composer.current?.value||'';if(!content.trim())return}noteName=titleRef.current?.value.trim()||'';const type=isWrite?'note':modal;await fetch('/api/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type,content,name:noteName||undefined})});setModal(null);show(`${title} shared successfully`)};const onClKeyDown=e=>{if(e.key==='Enter'){e.preventDefault();addClLine()}if(e.key==='Backspace'&&!e.target.textContent.trim()){e.preventDefault();const line=e.target.closest('.cl-line');const editor=document.querySelector('.cl-editor');if(!editor||editor.children.length<=1)return;const prev=line.previousElementSibling;editor.removeChild(line);if(prev){const prevText=prev.querySelector('.cl-line-text');prevText?.focus();const range=document.range?document.range():null;if(range){range.setStart(prevText,prevText.textContent.length);range.collapse(true);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range)}}else{const first=editor.querySelector('.cl-line-text');first?.focus()}}};const addClLine=()=>{const el=document.createElement('div');el.className='cl-line';el.innerHTML='<span class="cl-line-dot"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></span><span class="cl-line-text" contentEditable="true"></span>';const editor=document.querySelector('.cl-editor');if(!editor)return;const lastLine=editor.lastElementChild;if(lastLine&&!lastLine.querySelector('.cl-line-remove')){const btn=document.createElement('button');btn.className='cl-line-remove';btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';btn.onclick=()=>{editor.removeChild(lastLine);if(editor.children.length===1)editor.querySelector('.cl-line-remove')?.remove()};lastLine.appendChild(btn)}editor.appendChild(el);const textSpan=el.querySelector('.cl-line-text');textSpan.focus();textSpan.addEventListener('keydown',onClKeyDown)};const initCl=()=>{setIsChecklist(true);setTimeout(()=>{const editor=document.querySelector('.cl-editor');if(!editor)return;editor.innerHTML='';const el=document.createElement('div');el.className='cl-line';el.innerHTML='<span class="cl-line-dot"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/></svg></span><span class="cl-line-text" contentEditable="true"></span>';editor.appendChild(el);const textSpan=el.querySelector('.cl-line-text');textSpan.addEventListener('keydown',onClKeyDown);textSpan.focus()},10)};return <><span className="modal-icon">{modal==='link'?<I.Link2/>:(isChecklist?<I.ListChecks/>:<I.StickyNote/>)}</span><h2>{title}</h2><p>It will be available instantly to devices on your network.</p>{modal!=='link'&&<div style={{display:'flex',gap:'6px',marginBottom:'12px'}}><button className={`pair ${!isChecklist?'active':''}`} style={{flex:1,justifyContent:'center',fontSize:12,padding:'8px',background:isChecklist?'var(--panel)':'var(--green)',color:isChecklist?'var(--ink)':'var(--panel)',border:isChecklist?'1px solid var(--line)':'0'}} onClick={()=>{setIsChecklist(false)}}><I.StickyNote size={13}/> Note</button><button className={`pair ${isChecklist?'active':''}`} style={{flex:1,justifyContent:'center',fontSize:12,padding:'8px',background:isChecklist?'var(--green)':'var(--panel)',color:isChecklist?'var(--panel)':'var(--ink)',border:isChecklist?'0':'1px solid var(--line)'}} onClick={initCl}><I.ListChecks size={13}/> Checklist</button></div>}{modal==='link'?<input ref={composer} className="composer" placeholder="https://example.com" autoFocus/>:<><input ref={titleRef} className="cl-title-input" placeholder="Title (optional)" autoFocus={!isChecklist}/>{isChecklist?<div className="cl-editor"></div>:<textarea ref={composer} className="composer" rows="5" placeholder="Type note..." style={{marginTop:'8px'}}/>}</>}<button className="primary full" onClick={send}><I.Send size={17}/> Share now</button></>}
 }
 function Settings({ theme, setTheme, autoAccept, setAutoAccept, notifications, setNotifications, showToast }) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteInput, setDeleteInput] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteDatabase = async () => {
+    if (deleteInput.toLowerCase() !== 'delete') return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch('/api/reset', { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Database deleted successfully. Starting fresh!');
+        setShowDeleteConfirm(false);
+        setDeleteInput('');
+      } else {
+        showToast('Failed to delete database');
+      }
+    } catch {
+      showToast('Failed to delete database');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return <>
      <span className="modal-icon"><I.Settings/></span>
      <h2>Settings</h2>
@@ -1212,6 +1789,55 @@ function Settings({ theme, setTheme, autoAccept, setAutoAccept, notifications, s
           setNotifications(next);
         }}/>
       </label>
+
+      <div className="setting-danger-zone">
+        <div className="danger-zone-header">
+          <I.AlertTriangle size={15} />
+          <b>Danger Zone</b>
+        </div>
+        {!showDeleteConfirm ? (
+          <button className="delete-database-btn" onClick={() => setShowDeleteConfirm(true)}>
+            <I.Trash2 size={15} />
+            Delete entire database
+          </button>
+        ) : (
+          <div className="delete-confirm-popup">
+            <div className="delete-confirm-header">
+              <span className="delete-confirm-icon"><I.AlertTriangle size={20} /></span>
+              <b>Are you absolutely sure?</b>
+            </div>
+            <p className="delete-confirm-desc">
+              This will permanently delete all shared files, notes, links, and history. This action <strong>cannot be undone</strong>.
+            </p>
+            <label className="delete-confirm-label">
+              Type <code>delete</code> to confirm:
+            </label>
+            <input
+              className="delete-confirm-input"
+              type="text"
+              value={deleteInput}
+              onChange={e => setDeleteInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleDeleteDatabase(); }}
+              placeholder="Type delete here..."
+              autoFocus
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <div className="delete-confirm-actions">
+              <button className="delete-cancel-btn" onClick={() => { setShowDeleteConfirm(false); setDeleteInput(''); }}>
+                Cancel
+              </button>
+              <button
+                className="delete-execute-btn"
+                disabled={deleteInput.toLowerCase() !== 'delete' || isDeleting}
+                onClick={handleDeleteDatabase}
+              >
+                {isDeleting ? <><I.Loader2 size={14} className="spin" /> Deleting...</> : <><I.Trash2 size={14} /> Delete everything</>}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </>;
 }
 function formatSize(n){if(n<1e6)return Math.round(n/1e3)+' KB';if(n<1e9)return (n/1e6).toFixed(1)+' MB';return (n/1e9).toFixed(1)+' GB'}
