@@ -586,9 +586,6 @@ function App(){
         <div className="header-logo"><Logo/></div>
         <div className="search"><I.Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search everything..."/><kbd>⌘ K</kbd></div>
         <div className="head-actions">
-          <button className="header-pair-btn" onClick={() => setModal(prev => prev === 'help' ? null : 'help')} title="QR Connect" aria-label="QR Connect">
-            <I.QrCode size={18}/>
-          </button>
           <button className="theme-btn" onClick={()=>{const next=isDark?'light':'dark';setTheme(next);localStorage.setItem('relay-theme',next)}}>{isDark?<I.Sun size={18}/>:<I.Moon size={18}/>}</button>
           <div className="bell-container">
             <button className="bell-btn" onClick={() => {
@@ -697,6 +694,14 @@ function App(){
           </button>
         </div>
         <div className="dock-divider" />
+        <button
+          className={`dock-item ${modal==='help'?'active':''}`}
+          onClick={()=>setModal(prev=>prev==='help'?null:'help')}
+          data-label="Connect"
+          aria-label="Connect"
+        >
+          <I.QrCode size={20}/>
+        </button>
         <button
           className={`dock-item ${modal==='settings'?'active':''}`}
           onClick={()=>setModal(prev=>prev==='settings'?null:'settings')}

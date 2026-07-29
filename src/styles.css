@@ -675,10 +675,10 @@ button,input,textarea{font:inherit}button{cursor:pointer}.logo{display:flex;alig
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 30px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.08);
   animation: quickAddPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 30;
@@ -700,6 +700,7 @@ button,input,textarea{font:inherit}button{cursor:pointer}.logo{display:flex;alig
   background: var(--panel);
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
+  border-radius: 2px;
 }
 
 @keyframes quickAddPop {
@@ -737,7 +738,7 @@ button,input,textarea{font:inherit}button{cursor:pointer}.logo{display:flex;alig
 .quick-add-icon {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   transition: all 0.18s ease;
@@ -2158,7 +2159,7 @@ section+section {
   .file-preview-container {
     width: 100%;
     max-height: 95vh;
-    border-radius: 14px;
+  border-radius: 30px;
   }
 
   .file-preview-overlay {
