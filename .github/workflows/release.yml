@@ -20,17 +20,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm install
 
       - name: Build app
         run: npm run build
 
       - name: Build Linux packages
-        run: npm run electron:build:linux
+        run: npm run electron:build:linux -- --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -51,17 +50,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm install
 
       - name: Build app
         run: npm run build
 
       - name: Build Windows packages
-        run: npm run electron:build:win
+        run: npm run electron:build:win -- --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -77,7 +75,7 @@ jobs:
     name: Create GitHub Release
     needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && always()
     steps:
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
