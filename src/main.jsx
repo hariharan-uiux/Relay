@@ -1083,7 +1083,7 @@ function App(){
   }
 
   function Home() {
-    const [homeSection, setHomeSection] = useLocal('relay-home-section', 'notes');
+    const [homeSection, setHomeSection] = useLocal('relay-home-section', 'checklists');
 
     const metrics = useMemo(() => {
       const devicesCount = devices.filter(d => d.id !== socketId).length;
@@ -1155,20 +1155,20 @@ function App(){
         <div className="dash-checklists-header">
           <div className="dash-home-toggle-group">
             <button
-              className={`dash-home-tab-btn ${homeSection === 'notes' ? 'active' : ''}`}
-              onClick={() => setHomeSection('notes')}
-            >
-              <I.StickyNote size={15} />
-              <span>Notes</span>
-              <span className="dash-count-badge">{plainNotes.length}</span>
-            </button>
-            <button
               className={`dash-home-tab-btn ${homeSection === 'checklists' ? 'active' : ''}`}
               onClick={() => setHomeSection('checklists')}
             >
               <I.CheckSquare size={15} />
               <span>Checklists</span>
               <span className="dash-count-badge">{checklistNotes.length}</span>
+            </button>
+            <button
+              className={`dash-home-tab-btn ${homeSection === 'notes' ? 'active' : ''}`}
+              onClick={() => setHomeSection('notes')}
+            >
+              <I.StickyNote size={15} />
+              <span>Notes</span>
+              <span className="dash-count-badge">{plainNotes.length}</span>
             </button>
           </div>
           <button className="dash-add-cl-btn" onClick={() => setModal(homeSection === 'checklists' ? 'checklist' : 'write')} title={homeSection === 'notes' ? 'Create new note' : 'Create new checklist'}>
