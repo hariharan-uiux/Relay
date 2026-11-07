@@ -76,7 +76,7 @@
         "nsis",
         "portable"
       ],
-      "icon": "public/icon.svg",
+      "icon": "public/icon.ico",
       "publisherName": "Relay",
       "certificateFile": "",
       "certificatePassword": ""
