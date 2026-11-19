@@ -77,9 +77,7 @@
         "portable"
       ],
       "icon": "public/icon.ico",
-      "publisherName": "Relay",
-      "certificateFile": "",
-      "certificatePassword": ""
+      "publisherName": "Relay"
     },
     "nsis": {
       "oneClick": false,
