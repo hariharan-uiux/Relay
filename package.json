@@ -89,9 +89,9 @@
       "shortcutName": "Relay",
       "uninstallDisplayName": "Relay",
       "license": "",
-      "installerIcon": "public/icon.svg",
-      "uninstallerIcon": "public/icon.svg",
-      "installerHeaderIcon": "public/icon.svg"
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico"
     },
     "portable": {
       "artifactName": "Relay-${version}-portable.${ext}"
